@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Translator for Developers",
+  "description": "개발 용어와 코드는 영어 그대로 두고, 드래그한 영어 문장만 한국어로 번역합니다.",
+  "version": "0.1.0",
+  "minimum_chrome_version": "138",
+  "permissions": ["storage"],
+  "options_page": "src/options/options.html",
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "run_at": "document_idle",
+      "js": [
+        "src/data/terms.js",
+        "src/core/sentence-splitter.js",
+        "src/core/term-detector.js",
+        "src/core/protector.js",
+        "src/core/search-query.js",
+        "src/content/text-model.js",
+        "src/content/sentence-dom.js",
+        "src/content/translator.js",
+        "src/content/ui.js",
+        "src/content/main.js"
+      ],
+      "css": ["src/content/content.css"]
+    }
+  ]
+}

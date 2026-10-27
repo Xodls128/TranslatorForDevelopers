@@ -1,0 +1,16 @@
+/* 번역된 문장: 원문과 구분되도록 옅게 표시 (밝은/어두운 페이지 모두에서 보이도록 반투명) */
+span.tfd-sentence {
+  background-color: rgba(255, 196, 0, 0.16);
+  border-radius: 2px;
+}
+
+/* 보존된 개발 용어: 클릭하면 검색 */
+span.tfd-term {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  cursor: help;
+}
+
+span.tfd-term:hover {
+  background-color: rgba(31, 111, 235, 0.15);
+}

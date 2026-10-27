@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>Translator for Developers 설정</title>
+  <style>
+    body { max-width: 640px; margin: 24px auto; padding: 0 16px; font: 14px/1.6 system-ui, sans-serif; }
+    label { display: block; margin-top: 16px; font-weight: 600; }
+    small { display: block; color: #666; font-weight: 400; }
+    textarea { width: 100%; min-height: 120px; margin-top: 4px; font-family: ui-monospace, monospace; box-sizing: border-box; }
+    select { margin-top: 4px; }
+    button { margin-top: 16px; padding: 6px 14px; }
+    #status { margin-left: 8px; color: #1a7f37; }
+  </style>
+</head>
+<body>
+  <h1>Translator for Developers 설정</h1>
+
+  <label for="extraTerms">항상 영어로 보존할 용어
+    <small>한 줄에 하나. 대문자가 섞이면 정확히 일치할 때만, 소문자만 쓰면 대소문자와 복수형 상관없이 보존합니다.</small>
+  </label>
+  <textarea id="extraTerms" placeholder="Riverpod&#10;borrow checker"></textarea>
+
+  <label for="excludedTerms">보존하지 않고 번역할 용어
+    <small>기본 사전에 있지만 번역되기를 원하는 용어. 한 줄에 하나.</small>
+  </label>
+  <textarea id="excludedTerms" placeholder="class"></textarea>
+
+  <label for="searchEngine">용어 검색 엔진</label>
+  <select id="searchEngine">
+    <option value="google">Google</option>
+    <option value="naver">Naver</option>
+    <option value="duckduckgo">DuckDuckGo</option>
+  </select>
+
+  <div>
+    <button id="save" type="button">저장</button><span id="status" role="status"></span>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>
