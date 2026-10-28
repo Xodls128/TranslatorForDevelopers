@@ -48,12 +48,17 @@
       onTranslate();
     });
 
-    function showButton(rect) {
-      const top = rect.bottom + 6 + 28 > window.innerHeight ? rect.top - 34 : rect.bottom + 6;
-      const left = Math.min(Math.max(8, rect.right - 24), window.innerWidth - 64);
-      button.style.top = `${Math.max(8, top)}px`;
-      button.style.left = `${left}px`;
+    // 마우스를 놓은 지점 오른쪽 아래에 띄우고, 화면 밖으로 나가면 반대쪽으로 옮긴다.
+    function showButton(point) {
       button.hidden = false;
+      const { width, height } = button.getBoundingClientRect();
+      const gap = 10;
+      let left = point.x + gap;
+      let top = point.y + gap;
+      if (left + width > window.innerWidth - 8) left = point.x - gap - width;
+      if (top + height > window.innerHeight - 8) top = point.y - gap - height;
+      button.style.left = `${Math.max(8, left)}px`;
+      button.style.top = `${Math.max(8, top)}px`;
     }
 
     function hideButton() {

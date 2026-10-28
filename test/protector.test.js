@@ -34,6 +34,14 @@ test('restoreSentence: 토큰이 사라지거나 중복되면 실패', () => {
   assert.equal(restoreSentence('⟦3⟧', items).ok, false);
 });
 
+test('restoreSentence: 한국어 번역문에 남은 영어 관사는 지운다', () => {
+  const { items } = protectSentence('In other words, a closure gives access.', detector);
+  assert.equal(render(restoreSentence('즉, A ⟦0⟧ 함수는 접근 권한을 부여합니다.', items).parts), '즉, closure 함수는 접근 권한을 부여합니다.');
+  assert.equal(render(restoreSentence('The ⟦0⟧는 강력합니다.', items).parts), 'closure은(는) 강력합니다.');
+  // 영어로 남은 문장(번역 실패 등)은 건드리지 않는다.
+  assert.equal(render(restoreSentence('Use a ⟦0⟧ here.', items).parts), 'Use a closure here.');
+});
+
 test('restoreSentence: 토큰 안 공백은 허용', () => {
   const { items } = protectSentence('A closure is here.', detector);
   assert.equal(render(restoreSentence('⟦ 0 ⟧가 있습니다.', items).parts), 'closure이(가) 있습니다.');

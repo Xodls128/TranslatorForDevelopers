@@ -1,10 +1,11 @@
 /*
- * 선택 영역 번역 / 원문 복원
+ * 선택 영역 번역 / 원문 ↔ 번역문 전환
  *
  * 번역: 선택 영역이 걸친 문장마다 원래 DOM 조각을 떼어 보관하고,
- *       그 자리에 번역문을 담은 <span class="tfd-sentence" data-tfd-id="n">을 넣는다.
+ *       그 자리에 번역문을 담은 <span class="tfd-sentence" data-tfd-id="n" data-tfd-state="translated">을 넣는다.
  *       주변 요소와 CSS는 그대로이므로 페이지 모양이 유지된다.
- * 복원: data-tfd-id(문장 번호)로 보관해 둔 원래 DOM 조각을 다시 끼워 넣는다.
+ * 전환: data-tfd-id(문장 번호)로 원문 조각과 번역문 조각을 모두 보관해 두고, span 안의 내용만 맞바꾼다.
+ *       (data-tfd-state: translated | original)
  */
 (function (root) {
   'use strict';
@@ -12,7 +13,8 @@
   const TFD = (root.TFD = root.TFD || {});
 
   const ATOM_RE = /[\ue000-\uf8ff]/g;
-  const originals = new Map(); // 문장 번호 → 원래 DOM 조각(DocumentFragment)
+  // 문장 번호 → { original, translated }: 지금 화면에 없는 쪽의 DOM 조각(DocumentFragment)
+  const stored = new Map();
   const cache = new Map(); // 보호 처리된 원문 → 번역문
   let nextId = 1;
 
@@ -81,13 +83,43 @@
     const span = doc.createElement('span');
     span.className = 'tfd-sentence';
     span.dataset.tfdId = id;
+    span.dataset.tfdState = 'translated';
     span.lang = 'ko';
     span.append(...renderParts(doc, parts, target.atoms));
 
     const fragment = target.range.extractContents();
     target.range.insertNode(span);
-    originals.set(id, fragment);
+    stored.set(id, { original: fragment, translated: null });
     return span;
+  }
+
+  // 문장 span의 내용을 보관해 둔 반대 상태(원문/번역문) 조각과 맞바꾼다.
+  function swap(span, nextState) {
+    const entry = stored.get(span.dataset.tfdId);
+    const currentState = span.dataset.tfdState;
+    if (!entry || currentState === nextState) return false;
+
+    const current = span.ownerDocument.createDocumentFragment();
+    current.append(...span.childNodes);
+    entry[currentState] = current;
+    span.append(entry[nextState]);
+    entry[nextState] = null;
+
+    span.dataset.tfdState = nextState;
+    if (nextState === 'translated') {
+      span.lang = 'ko';
+      span.removeAttribute('title');
+    } else {
+      span.removeAttribute('lang');
+      span.title = '클릭하면 번역문으로 돌아갑니다';
+    }
+    return true;
+  }
+
+  function spansInRange(selRange, state) {
+    const doc = selRange.startContainer.ownerDocument;
+    return Array.from(doc.querySelectorAll(`span.tfd-sentence[data-tfd-state="${state}"]`))
+      .filter((span) => selRange.intersectsNode(span));
   }
 
   /**
@@ -96,6 +128,10 @@
    * @returns {Promise<{translated: number, failed: number}>}
    */
   async function translateRange(selRange, deps) {
+    // 원문으로 돌려 둔 문장은 보관해 둔 번역문으로 바로 되돌린다.
+    let reshown = 0;
+    for (const span of spansInRange(selRange, 'original')) if (swap(span, 'translated')) reshown++;
+
     const targets = collectSentences(selRange);
     const results = [];
 
@@ -119,29 +155,28 @@
       }
       replaceWithTranslation(target, restored.parts);
     }
-    return { translated: results.length - failed, failed };
+    return { translated: results.length - failed + reshown, failed };
   }
 
-  function restoreSentence(span) {
-    const fragment = originals.get(span.dataset.tfdId);
-    if (!fragment) return false;
-    originals.delete(span.dataset.tfdId);
-    const parent = span.parentNode;
-    span.replaceWith(fragment);
-    parent.normalize();
-    return true;
-  }
-
-  /** 선택 영역에 걸친 번역 문장을 모두 원문으로 되돌리고, 되돌린 문장 수를 돌려준다. */
-  function restoreInRange(selRange) {
-    const doc = selRange.startContainer.ownerDocument;
-    const spans = Array.from(doc.querySelectorAll('span.tfd-sentence')).filter((s) => selRange.intersectsNode(s));
+  /** 선택 영역에 걸친 번역 문장을 모두 원문으로 보여 주고, 바꾼 문장 수를 돌려준다. */
+  function showOriginalInRange(selRange) {
     let count = 0;
-    for (const span of spans) if (restoreSentence(span)) count++;
+    for (const span of spansInRange(selRange, 'translated')) if (swap(span, 'original')) count++;
     return count;
+  }
+
+  function touchesTranslation(selRange) {
+    return spansInRange(selRange, 'translated').length > 0;
+  }
+
+  /** 원문 상태의 문장 span을 번역문으로 되돌린다. */
+  function showTranslation(span) {
+    return swap(span, 'translated');
   }
 
   TFD.collectSentences = collectSentences;
   TFD.translateRange = translateRange;
-  TFD.restoreInRange = restoreInRange;
+  TFD.showOriginalInRange = showOriginalInRange;
+  TFD.touchesTranslation = touchesTranslation;
+  TFD.showTranslation = showTranslation;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

@@ -16,6 +16,7 @@
   const ATOM_MAX = 0xf8ff;
   const ATOM_RE = /[\ue000-\uf8ff]/g;
   const TOKEN_RE = /⟦\s*(\d+)\s*⟧/g;
+  const STRAY_ARTICLE_RE = /(^|[^A-Za-z])(?:a|an|the)\s+(?=⟦\s*\d+\s*⟧)/gi;
 
   function atomChar(index) {
     if (ATOM_BASE + index > ATOM_MAX) throw new Error('Too many atoms in one block');
@@ -92,6 +93,9 @@
    *   parts: {type: 'text', text} 또는 {type: 'item', item}
    */
   function restoreSentence(translated, items) {
+    // 번역기가 한국어 문장에 영어 관사를 남기는 경우가 있다. ("즉, A ⟦0⟧ 함수는")
+    if (/[가-힣]/.test(translated)) translated = translated.replace(STRAY_ARTICLE_RE, '$1');
+
     const seen = new Array(items.length).fill(0);
     const parts = [];
     let last = 0;

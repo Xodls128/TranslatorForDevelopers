@@ -1,7 +1,27 @@
-/* 번역된 문장: 원문과 구분되도록 옅게 표시 (밝은/어두운 페이지 모두에서 보이도록 반투명) */
+/* 번역 문장 공통: 마우스를 올리면 문장 범위를 옅은 테두리로 표시 (여러 줄이면 줄마다 표시) */
 span.tfd-sentence {
-  background-color: rgba(255, 196, 0, 0.16);
   border-radius: 2px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  transition: box-shadow 0.12s ease;
+}
+
+span.tfd-sentence:hover {
+  box-shadow: 0 0 0 1px rgba(31, 111, 235, 0.55);
+}
+
+/* 번역문: 원문과 구분되도록 옅게 표시 (밝은/어두운 페이지 모두에서 보이도록 반투명) */
+span.tfd-sentence[data-tfd-state="translated"] {
+  background-color: rgba(255, 196, 0, 0.16);
+}
+
+/* 원문으로 전환된 문장: 클릭하면 번역문으로 돌아감 */
+span.tfd-sentence[data-tfd-state="original"] {
+  cursor: pointer;
+}
+
+span.tfd-sentence[data-tfd-state="original"]:hover {
+  background-color: rgba(31, 111, 235, 0.06);
 }
 
 /* 보존된 개발 용어: 클릭하면 검색 */

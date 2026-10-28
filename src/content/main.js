@@ -1,8 +1,9 @@
 /*
  * 사용자 동작 연결
  *
- * - 번역되지 않은 영어를 드래그하면 → "번역" 버튼 표시 → 누르면 걸친 문장들을 번역
- * - 번역된 문장을 드래그하면 → 걸친 문장들을 바로 원문으로 복원
+ * - 번역되지 않은 영어를 드래그하면 → 마우스 옆에 "번역" 버튼 표시 → 누르면 걸친 문장들을 번역
+ * - 번역된 문장을 드래그하면 → 걸친 문장들을 바로 원문으로 전환 (단순 클릭/더블클릭으로는 바뀌지 않음)
+ * - 원문으로 전환된 문장을 클릭하면 → 다시 번역문으로
  * - 번역문 속 개발 용어(점선 밑줄)를 클릭하면 → 검색 페이지를 새 탭으로 연다
  */
 (function (root) {
@@ -14,7 +15,11 @@
 
   const settings = { extraTerms: [], excludedTerms: [], searchEngine: 'google' };
   let detector = TFD.createTermDetector();
+  // 이만큼 이상 끌어야 드래그로 본다. (클릭 중 손떨림으로 원문 전환되는 것을 막음)
+  const DRAG_THRESHOLD_PX = 5;
+
   let pendingRange = null;
+  let pointerDown = null;
   let busy = false;
 
   const ui = TFD.createUI({ onTranslate: handleTranslate });
@@ -39,13 +44,26 @@
     return !!el && (el.isContentEditable || !!el.closest('input, textarea'));
   }
 
-  function selectionRect(range) {
+  // 키보드로 선택했을 때는 선택 영역 끝을 버튼 위치로 쓴다.
+  function selectionEndPoint(range) {
     const rects = range.getClientRects();
-    return rects.length ? rects[rects.length - 1] : range.getBoundingClientRect();
+    const rect = rects.length ? rects[rects.length - 1] : range.getBoundingClientRect();
+    return { x: rect.right, y: rect.bottom };
+  }
+
+  function onPointerDown(e) {
+    pointerDown = ui.contains(e.target) ? null : { x: e.clientX, y: e.clientY };
   }
 
   function onSelectionDone(e) {
     if (busy || ui.contains(e.target)) return;
+    const isMouse = e.type === 'mouseup';
+    const dragged = isMouse
+      ? !!pointerDown && Math.hypot(e.clientX - pointerDown.x, e.clientY - pointerDown.y) >= DRAG_THRESHOLD_PX
+      : true;
+    const point = isMouse ? { x: e.clientX, y: e.clientY } : null;
+    pointerDown = null;
+
     // 선택 영역이 확정된 뒤에 읽는다.
     setTimeout(() => {
       const sel = window.getSelection();
@@ -56,8 +74,9 @@
       const range = sel.getRangeAt(0);
       if (isEditable(range.commonAncestorContainer)) return;
 
-      if (TFD.restoreInRange(range) > 0) {
-        sel.removeAllRanges();
+      if (TFD.touchesTranslation(range)) {
+        // 번역문은 실제로 끌었을 때만 원문으로 바꾼다. 더블클릭 단어 선택 등은 무시한다.
+        if (dragged && TFD.showOriginalInRange(range) > 0) sel.removeAllRanges();
         ui.hideButton();
         return;
       }
@@ -66,7 +85,7 @@
         return;
       }
       pendingRange = range.cloneRange();
-      ui.showButton(selectionRect(range));
+      ui.showButton(point || selectionEndPoint(range));
     }, 0);
   }
 
@@ -114,16 +133,25 @@
   }
 
   function onClick(e) {
-    const term = e.target instanceof Element && e.target.closest('.tfd-term');
-    if (!term) return;
+    if (!(e.target instanceof Element)) return;
     const sel = window.getSelection();
     if (sel && !sel.isCollapsed) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const query = TFD.buildSearchQuery(term.dataset.term || term.textContent);
-    window.open(TFD.buildSearchUrl(query, settings.searchEngine), '_blank', 'noopener');
+
+    const term = e.target.closest('.tfd-term');
+    if (term) {
+      e.preventDefault();
+      e.stopPropagation();
+      const query = TFD.buildSearchQuery(term.dataset.term || term.textContent);
+      window.open(TFD.buildSearchUrl(query, settings.searchEngine), '_blank', 'noopener');
+      return;
+    }
+
+    // 원문으로 전환된 문장을 클릭하면 번역문으로 되돌린다. (문장 안 링크 클릭은 그대로 둔다)
+    const sentence = e.target.closest('.tfd-sentence[data-tfd-state="original"]');
+    if (sentence && !e.target.closest('a')) TFD.showTranslation(sentence);
   }
 
+  document.addEventListener('mousedown', onPointerDown, true);
   document.addEventListener('mouseup', onSelectionDone, true);
   document.addEventListener('keyup', (e) => {
     if (e.shiftKey || e.key === 'Shift') onSelectionDone(e);

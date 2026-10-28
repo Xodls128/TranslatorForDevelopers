@@ -1,8 +1,8 @@
 'use strict';
 
 /*
- * content script를 실제 Chromium 페이지에 넣어 드래그 → 번역 → 복원 흐름을 확인한다.
- * 헤드리스 Chromium에는 Translator API가 없으므로 토큰을 그대로 두는 가짜 번역기를 넣는다.
+ * content script를 실제 Chromium 페이지에 넣어 드래그 → 번역 → 원문/번역문 전환 흐름을 확인한다.
+ * 헤드리스 Chromium에는 Translator API(언어팩)가 없으므로 토큰을 그대로 두는 가짜 번역기를 넣는다.
  *
  * 실행: npm run test:e2e
  */
@@ -35,10 +35,16 @@ const FAKE_TRANSLATOR = `
 let browser;
 let page;
 
-async function select(selector, startText, endText) {
-  // 요소 안 텍스트에서 startText 시작 ~ endText 끝까지 선택하고, 드래그를 끝낸 것처럼 mouseup을 보낸다.
-  await page.evaluate(({ selector, startText, endText }) => {
+/**
+ * 요소 안 텍스트에서 startText 시작 ~ endText 끝까지 선택하고, 마우스로 드래그를 끝낸 것처럼 이벤트를 보낸다.
+ * @param {{from?: number[], to?: number[]}} [pointer] mousedown/mouseup 좌표. 기본값은 50px 드래그
+ */
+async function select(selector, startText, endText, pointer = {}) {
+  const from = pointer.from || [100, 100];
+  const to = pointer.to || [150, 100];
+  await page.evaluate(({ selector, startText, endText, from, to }) => {
     const rootEl = document.querySelector(selector);
+    rootEl.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: from[0], clientY: from[1] }));
     const walker = document.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT);
     const range = document.createRange();
     let started = false;
@@ -55,13 +61,18 @@ async function select(selector, startText, endText) {
     const sel = window.getSelection();
     sel.removeAllRanges();
     sel.addRange(range);
-    rootEl.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-  }, { selector, startText, endText });
+    rootEl.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: to[0], clientY: to[1] }));
+  }, { selector, startText, endText, from, to });
   await page.waitForTimeout(50);
 }
 
-async function buttonVisible() {
-  return page.evaluate(() => !document.getElementById('tfd-ui-host').shadowRoot.querySelector('.button').hidden);
+async function buttonBox() {
+  return page.evaluate(() => {
+    const button = document.getElementById('tfd-ui-host').shadowRoot.querySelector('.button');
+    if (button.hidden) return null;
+    const { left, top } = button.getBoundingClientRect();
+    return { left, top };
+  });
 }
 
 async function clickTranslate() {
@@ -69,7 +80,8 @@ async function clickTranslate() {
   await page.waitForFunction(() => !document.getElementById('tfd-ui-host').shadowRoot.querySelector('.toast').textContent.includes('번역 중'));
 }
 
-const html = (selector) => page.$eval(selector, (el) => el.innerHTML);
+const states = (selector) => page.$$eval(`${selector} .tfd-sentence`, (els) => els.map((el) => el.dataset.tfdState));
+const texts = (selector) => page.$$eval(`${selector} .tfd-sentence`, (els) => els.map((el) => el.textContent));
 
 test.before(async () => {
   browser = await chromium.launch();
@@ -84,51 +96,69 @@ test.after(async () => {
   await browser.close();
 });
 
-test('영어 드래그 → 번역 버튼 → 걸친 문장만 번역, 코드/링크/용어 보존', async () => {
-  const original = await html('#p1');
-  // 첫 문장 중간 ~ 둘째 문장 중간까지 드래그 (<code>를 가로지름)
-  await select('#p1', 'can call', 'It returns');
-  assert.equal(await buttonVisible(), true);
+test('영어 드래그 → 마우스 옆 번역 버튼 → 걸친 문장만 번역, 코드/링크/용어 보존', async () => {
+  // 첫 문장 중간 ~ 둘째 문장 중간까지 드래그 (<code>를 가로지름). 아래→위 드래그처럼 끝점을 위쪽에 둔다.
+  await select('#p1', 'can call', 'It returns', { from: [300, 200], to: [220, 120] });
+  const box = await buttonBox();
+  assert.ok(box, '번역 버튼이 보여야 한다');
+  assert.ok(Math.abs(box.left - 230) <= 2 && Math.abs(box.top - 130) <= 2, `버튼이 마우스 옆에 떠야 한다: ${JSON.stringify(box)}`);
   await clickTranslate();
 
-  const sentences = await page.$$eval('#p1 .tfd-sentence', (els) => els.map((el) => el.textContent));
-  assert.deepEqual(sentences, [
+  assert.deepEqual(await texts('#p1'), [
     '[ko] closure은(는) can call fetch() at any time.',
     '[ko] It returns a Promise object.',
   ]);
+  assert.deepEqual(await states('#p1'), ['translated', 'translated']);
   // <code>와 <a>는 원래 요소 그대로(복제본) 들어간다.
   assert.equal(await page.$eval('#p1 .tfd-sentence code', (el) => el.textContent), 'fetch()');
   assert.equal(await page.$eval('#p1 .tfd-sentence a', (el) => el.getAttribute('href')), '#promise');
   // 번역기에는 토큰이 들어간 문장이 전달된다.
-  const sent = await page.evaluate(() => window.__translated);
-  assert.deepEqual(sent, ['A ⟦0⟧ can call ⟦1⟧ at any time.', 'It returns a ⟦0⟧ object.']);
-
-  // 번역된 부분을 드래그하면 바로 원문으로 복원된다.
-  await select('#p1', '[ko] It', 'returns');
-  assert.equal(await page.$$eval('#p1 .tfd-sentence', (els) => els.length), 1);
-  assert.equal(await buttonVisible(), false);
-  await select('#p1', '[ko]', 'can call');
-  assert.equal(await page.$$eval('#p1 .tfd-sentence', (els) => els.length), 0);
-  assert.equal(await html('#p1'), original);
+  assert.deepEqual(await page.evaluate(() => window.__translated), ['A ⟦0⟧ can call ⟦1⟧ at any time.', 'It returns a ⟦0⟧ object.']);
 });
 
-test('여러 줄과 <strong>에 걸친 문장도 한 문장으로 번역하고 원래 DOM으로 복원', async () => {
-  const original = await html('#p1');
+test('제자리 클릭(더블클릭 단어 선택 포함)으로는 원문으로 바뀌지 않는다', async () => {
+  await select('#p1', 'It returns', 'returns', { from: [200, 100], to: [201, 100] });
+  assert.deepEqual(await states('#p1'), ['translated', 'translated']);
+  assert.equal(await buttonBox(), null);
+});
+
+test('번역문 드래그 → 원문, 원문 클릭 → 다시 번역문', async () => {
+  await select('#p1', '[ko] It', 'returns');
+  assert.deepEqual(await states('#p1'), ['translated', 'original']);
+  assert.equal((await texts('#p1'))[1], 'It returns a Promise object.');
+  assert.equal(await buttonBox(), null);
+
+  // 원문 상태 문장을 클릭하면 번역문으로 돌아온다. (번역기를 다시 부르지 않는다)
+  const calls = await page.evaluate(() => window.__translated.length);
+  await page.locator('#p1 .tfd-sentence[data-tfd-state="original"]').click({ position: { x: 5, y: 5 } });
+  assert.deepEqual(await states('#p1'), ['translated', 'translated']);
+  assert.equal((await texts('#p1'))[1], '[ko] It returns a Promise object.');
+  assert.equal(await page.evaluate(() => window.__translated.length), calls);
+});
+
+test('원문 상태 문장을 다시 드래그해서 번역 버튼을 누르면 보관된 번역문으로 돌아온다', async () => {
+  await select('#p1', '[ko] It', 'returns');
+  assert.deepEqual(await states('#p1'), ['translated', 'original']);
+  await select('#p1', 'It returns', 'object');
+  assert.ok(await buttonBox());
+  await clickTranslate();
+  assert.deepEqual(await states('#p1'), ['translated', 'translated']);
+});
+
+test('여러 줄과 <strong>에 걸친 문장도 한 문장으로 번역하고, 원문으로 돌리면 원래 DOM 그대로', async () => {
   await select('#p1', 'spans', 'bold');
   await clickTranslate();
-  const sentences = await page.$$eval('#p1 .tfd-sentence', (els) => els.map((el) => el.textContent));
-  assert.deepEqual(sentences, ['[ko] This sentence spans lines and has bold text inside.']);
+  assert.equal((await texts('#p1'))[2], '[ko] This sentence spans lines and has bold text inside.');
 
   await select('#p1', '[ko] This', 'spans');
-  assert.equal(await html('#p1'), original);
-  assert.equal(await page.$eval('#p1 strong', (el) => el.textContent), 'bold text');
+  const restored = await page.$eval('#p1 .tfd-sentence[data-tfd-state="original"]', (el) => el.innerHTML);
+  assert.match(restored, /^This sentence spans\s+lines and has <strong>bold text<\/strong> inside\.$/);
 });
 
 test('inline-block 배지는 통째로 보존', async () => {
   await select('#p1', 'Final', 'here');
   await clickTranslate();
   assert.equal(await page.$eval('#p1 .tfd-sentence .badge', (el) => el.textContent), 'new');
-  await select('#p1', '[ko] Final', 'one');
 });
 
 test('제목형 문장은 다의어 용어도 보존, 용어 클릭 시 검색 페이지 열기', async () => {
@@ -140,22 +170,23 @@ test('제목형 문장은 다의어 용어도 보존, 용어 클릭 시 검색 �
   await page.locator('#title .tfd-term').nth(1).click();
   const opened = await page.evaluate(() => window.__opened);
   assert.deepEqual(opened, ['https://www.google.com/search?q=' + encodeURIComponent('프로그래밍언어 union')]);
+  // 용어 클릭은 문장 전환을 일으키지 않는다.
+  assert.deepEqual(await states('#title'), ['translated']);
 });
 
 test('약어 e.g. 에서 문장을 끊지 않는다', async () => {
   await select('#li1', 'First', 'Set');
   await clickTranslate();
-  const sentences = await page.$$eval('#li1 .tfd-sentence', (els) => els.map((el) => el.textContent));
-  assert.deepEqual(sentences, ['[ko] First item, e.g. Map or Set.']);
+  assert.deepEqual(await texts('#li1'), ['[ko] First item, e.g. Map or Set.']);
 });
 
-test('<pre> 코드 블록과 한국어 문단은 번역 버튼이 떠도 번역하지 않는다', async () => {
+test('<pre> 코드 블록과 한국어 문단은 번역하지 않는다', async () => {
   const before = await page.evaluate(() => window.__translated.length);
   await select('#code', 'const', 'price');
-  if (await buttonVisible()) await clickTranslate();
+  if (await buttonBox()) await clickTranslate();
   assert.equal(await page.$$eval('#code .tfd-sentence', (els) => els.length), 0);
 
   await select('#ko', '이미', '문단입니다');
-  assert.equal(await buttonVisible(), false);
+  assert.equal(await buttonBox(), null);
   assert.equal(await page.evaluate(() => window.__translated.length), before);
 });
