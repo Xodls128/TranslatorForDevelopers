@@ -57,6 +57,7 @@
    * @param {{detect: Function}} detector createTermDetector()의 결과
    * @returns {{source: string, items: object[]}}
    *   source: 번역기에 넣을 문자열, items[n]: 토큰 ⟦n⟧이 가리키는 항목
+   *   (items[n].start/end: 원래 문장에서의 위치)
    */
   function protectSentence(text, detector) {
     // 감지기는 요소 자리를 공백으로 본다. (길이가 같아 오프셋은 그대로)
@@ -69,7 +70,7 @@
       const span = spans[spanIndex];
       if (span && span.start === i) {
         source += token(items.length);
-        items.push({ kind: span.kind, text: span.text, term: span.term });
+        items.push({ kind: span.kind, text: span.text, term: span.term, start: span.start, end: span.end });
         i = span.end;
         spanIndex++;
         continue;
@@ -77,7 +78,7 @@
       const ch = text[i];
       if (ch >= '\ue000' && ch <= '\uf8ff') {
         source += token(items.length);
-        items.push({ kind: 'atom', atomIndex: atomIndex(ch) });
+        items.push({ kind: 'atom', atomIndex: atomIndex(ch), start: i, end: i + 1 });
       } else {
         source += ch;
       }

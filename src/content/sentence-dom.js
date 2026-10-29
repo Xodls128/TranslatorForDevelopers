@@ -50,13 +50,80 @@
         if (!isMostlyEnglish(sentence.text)) continue;
         const range = TFD.rangeForRun(run, sentence.start, sentence.end);
         if (!rangesIntersect(range, selRange)) continue;
-        targets.push({ text: sentence.text, range, atoms: run.atoms });
+        targets.push({
+          text: sentence.text,
+          range,
+          atoms: run.atoms,
+          positions: run.positions.slice(sentence.start, sentence.end),
+          rootEl,
+        });
       }
     }
     return targets;
   }
 
-  function renderParts(doc, parts, atoms) {
+  /*
+   * 강조 서식 유지
+   * 번역문에서는 원문의 어느 단어가 어디로 갔는지 알 수 없으므로, 확실한 두 경우만 강조를 되살린다.
+   * A. 문장의 글자(문장부호 제외)가 모두 같은 강조 요소 안에 있을 때 → 번역문 전체에 적용
+   * B. 강조 요소 안이 보호 항목(용어, 코드 조각, <code> 등) 하나뿐일 때 → 그 항목에 적용
+   */
+  const EMPHASIS_TAGS = new Set(['strong', 'b', 'em', 'i', 'mark', 'u']);
+
+  function isContentChar(ch) {
+    return /[\p{L}\p{N}]/u.test(ch) || (ch >= '' && ch <= '');
+  }
+
+  // 글자 위치를 감싸는 강조 요소들 (안쪽 → 바깥쪽)
+  function emphasisAncestors(pos, rootEl) {
+    const list = [];
+    for (let el = (pos.el || pos.node).parentElement; el && el !== rootEl; el = el.parentElement) {
+      if (EMPHASIS_TAGS.has(el.localName)) list.push(el);
+    }
+    return list;
+  }
+
+  function commonEmphasis(positions, rootEl) {
+    let common = null;
+    for (const pos of positions) {
+      const list = emphasisAncestors(pos, rootEl);
+      common = common ? common.filter((el) => list.includes(el)) : list;
+      if (common.length === 0) break;
+    }
+    return common || [];
+  }
+
+  // 문장 범위가 통째로 강조 요소 안에 있으면 번역문 span도 그 안에 들어가므로 다시 씌울 필요가 없다.
+  function inheritsFrom(el, range) {
+    return el.contains(range.startContainer) && el.contains(range.endContainer);
+  }
+
+  function sentenceEmphasis(target) {
+    const positions = target.positions.filter((_, i) => isContentChar(target.text[i]));
+    return commonEmphasis(positions, target.rootEl).filter((el) => !inheritsFrom(el, target.range));
+  }
+
+  function itemEmphasis(target, item, alreadyApplied) {
+    const normalize = (s) => s.replace(/\s+/g, ' ').trim();
+    const original = normalize(item.kind === 'atom' ? target.atoms[item.atomIndex].textContent : item.text);
+    return commonEmphasis(target.positions.slice(item.start, item.end), target.rootEl).filter(
+      (el) => !alreadyApplied.includes(el) && !inheritsFrom(el, target.range) && normalize(el.textContent) === original,
+    );
+  }
+
+  // 강조 요소의 빈 복제본으로 감싼다. (elements: 안쪽 → 바깥쪽)
+  function wrapWith(node, elements) {
+    let wrapped = node;
+    for (const el of elements) {
+      const shell = el.cloneNode(false);
+      shell.removeAttribute('id');
+      shell.append(wrapped);
+      wrapped = shell;
+    }
+    return wrapped;
+  }
+
+  function renderParts(doc, parts, target, sentenceLevel) {
     const nodes = [];
     for (const part of parts) {
       if (part.type === 'text') {
@@ -64,15 +131,16 @@
         continue;
       }
       const { item } = part;
+      let node;
       if (item.kind === 'atom') {
-        nodes.push(atoms[item.atomIndex].cloneNode(true));
+        node = target.atoms[item.atomIndex].cloneNode(true);
       } else {
-        const span = doc.createElement('span');
-        span.className = item.kind === 'term' ? 'tfd-term' : 'tfd-code';
-        if (item.kind === 'term') span.dataset.term = item.term;
-        span.textContent = item.text;
-        nodes.push(span);
+        node = doc.createElement('span');
+        node.className = item.kind === 'term' ? 'tfd-term' : 'tfd-code';
+        if (item.kind === 'term') node.dataset.term = item.term;
+        node.textContent = item.text;
       }
+      nodes.push(wrapWith(node, itemEmphasis(target, item, sentenceLevel)));
     }
     return nodes;
   }
@@ -85,7 +153,12 @@
     span.dataset.tfdId = id;
     span.dataset.tfdState = 'translated';
     span.lang = 'ko';
-    span.append(...renderParts(doc, parts, target.atoms));
+
+    // 원래 DOM을 떼어 내기 전에 강조 요소를 찾아야 한다.
+    const sentenceLevel = sentenceEmphasis(target);
+    const content = doc.createDocumentFragment();
+    content.append(...renderParts(doc, parts, target, sentenceLevel));
+    span.append(wrapWith(content, sentenceLevel));
 
     const fragment = target.range.extractContents();
     target.range.insertNode(span);

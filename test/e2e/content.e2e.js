@@ -180,6 +180,38 @@ test('약어 e.g. 에서 문장을 끊지 않는다', async () => {
   assert.deepEqual(await texts('#li1'), ['[ko] First item, e.g. Map or Set.']);
 });
 
+test('강조 A: 문장 글자 전체가 강조면 마침표가 밖에 있어도 번역문 전체를 강조', async () => {
+  await select('#em-outside', 'Never', 'slow');
+  await clickTranslate();
+  assert.deepEqual(await texts('#em-outside'), ['[ko] Never call this in production.', '[ko] It is slow.']);
+  assert.equal(await page.$eval('#em-outside .tfd-sentence:first-of-type > strong', (el) => el.textContent), '[ko] Never call this in production.');
+  assert.equal(await page.$$eval('#em-outside .tfd-sentence:last-of-type strong', (els) => els.length), 0);
+
+  // 원문 보기로 돌리면 원래 HTML 그대로
+  await select('#em-outside', 'Never', 'production');
+  assert.equal(await page.$eval('#em-outside .tfd-sentence[data-tfd-state="original"]', (el) => el.innerHTML), '<strong>Never call this in production</strong>.');
+});
+
+test('강조 A: 문장이 강조 요소 안에 있으면 그대로 안에 들어가고 중복으로 감싸지 않는다', async () => {
+  await select('#em-inside', 'Always', 'input');
+  await clickTranslate();
+  assert.equal(await page.$eval('#em-inside em > .tfd-sentence', (el) => el.textContent), '[ko] Always validate input.');
+  assert.equal(await page.$$eval('#em-inside .tfd-sentence em', (els) => els.length), 0);
+});
+
+test('강조 B: 강조 안이 용어나 <code> 하나뿐이면 그 항목에 강조 유지', async () => {
+  await select('#em-item', 'Every', 'sparingly');
+  await clickTranslate();
+  assert.equal(await page.$eval('#em-item .tfd-sentence strong > .tfd-term', (el) => el.textContent), 'closure');
+  assert.equal(await page.$eval('#em-item .tfd-sentence em > code', (el) => el.textContent), 'bind()');
+});
+
+test('강조: 문장 일부의 일반 단어 강조는 아직 번역문에서 빠진다 (알려진 한계)', async () => {
+  await select('#em-partial', 'This', 'words');
+  await clickTranslate();
+  assert.equal(await page.$$eval('#em-partial .tfd-sentence strong', (els) => els.length), 0);
+});
+
 test('<pre> 코드 블록과 한국어 문단은 번역하지 않는다', async () => {
   const before = await page.evaluate(() => window.__translated.length);
   await select('#code', 'const', 'price');
