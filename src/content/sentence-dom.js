@@ -71,7 +71,7 @@
   const EMPHASIS_TAGS = new Set(['strong', 'b', 'em', 'i', 'mark', 'u']);
 
   function isContentChar(ch) {
-    return /[\p{L}\p{N}]/u.test(ch) || (ch >= '' && ch <= '');
+    return /[\p{L}\p{N}]/u.test(ch) || (ch >= '\ue000' && ch <= '\uf8ff');
   }
 
   // 글자 위치를 감싸는 강조 요소들 (안쪽 → 바깥쪽)
