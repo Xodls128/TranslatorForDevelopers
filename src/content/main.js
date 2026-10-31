@@ -19,8 +19,9 @@
   const DRAG_THRESHOLD_PX = 5;
 
   let pendingRange = null;
+  let lastRange = null; // 안내 카드의 "다시 시도"에 쓰는 직전 번역 영역
   let pointerDown = null;
-  let busy = false;
+  let busy = false; // 번역 진행 중. 새 번역 시작만 막고, 원문 전환·용어 검색은 계속 된다.
 
   const ui = TFD.createUI({ onTranslate: handleTranslate });
 
@@ -56,7 +57,7 @@
   }
 
   function onSelectionDone(e) {
-    if (busy || ui.contains(e.target)) return;
+    if (ui.contains(e.target)) return;
     const isMouse = e.type === 'mouseup';
     const dragged = isMouse
       ? !!pointerDown && Math.hypot(e.clientX - pointerDown.x, e.clientY - pointerDown.y) >= DRAG_THRESHOLD_PX
@@ -80,7 +81,7 @@
         ui.hideButton();
         return;
       }
-      if (!/[A-Za-z]/.test(sel.toString())) {
+      if (busy || !/[A-Za-z]/.test(sel.toString())) {
         ui.hideButton();
         return;
       }
@@ -89,13 +90,34 @@
     }, 0);
   }
 
-  function errorMessage(err) {
-    if (err instanceof TFD.TranslatorUnavailableError) {
-      return err.reason === 'unsupported'
-        ? '이 브라우저는 내장 번역 기능(Translator API)을 지원하지 않습니다. 데스크톱 Chrome 138 이상이 필요합니다.'
-        : '이 기기에서는 영어→한국어 내장 번역을 사용할 수 없습니다.';
+  // 실패 원인을 안내 카드로 보여 준다. 다시 시도하면 직전 영역으로 처음부터 번역한다.
+  function showFailure(code, info) {
+    const detail = info.cause ? `${info.cause.name || 'Error'}: ${info.cause.message || info.cause}` : null;
+    const stallSeconds = Math.round(TFD.TRANSLATOR_TIMEOUTS.downloadStallMs / 1000);
+    ui.showCard(TFD.describeError(code, { ...info, stallSeconds, detail }), {
+      onRetry: () => {
+        pendingRange = lastRange;
+        handleTranslate();
+      },
+    });
+  }
+
+  function report(result) {
+    const err = result.interrupted;
+    if (err) {
+      const code = err instanceof TFD.TranslatorError ? err.code : 'unknown';
+      if (code === 'cancelled') {
+        ui.showToast(`번역을 취소했습니다. ${result.translated}문장은 번역을 마쳤습니다.`);
+      } else {
+        showFailure(code, { translated: result.translated, remaining: result.remaining, cause: err.cause || err });
+      }
+    } else if (result.failed > 0) {
+      showFailure('protect-failed', { translated: result.translated, failed: result.failed });
+    } else if (result.translated === 0) {
+      ui.showToast('번역할 영어 문장을 찾지 못했습니다.');
+    } else {
+      ui.showToast(`${result.translated}문장을 번역했습니다. 번역된 부분을 드래그하면 원문으로 돌아갑니다.`);
     }
-    return `번역 중 오류가 발생했습니다: ${err && err.message ? err.message : err}`;
   }
 
   async function handleTranslate() {
@@ -105,28 +127,30 @@
     if (!range || busy) return;
 
     busy = true;
+    lastRange = range.cloneRange();
+    const job = new AbortController();
+    const showStatus = (message) => ui.showToast(message, { duration: 0, onCancel: () => job.abort() });
+
     // 사용자 동작이 유지되는 동안 바로 호출해야 언어팩 다운로드가 허용된다.
-    const translatorReady = TFD.getTranslator((loaded) => {
-      ui.showToast(`번역 모델 다운로드 중… ${Math.round(loaded * 100)}%`, { duration: 0 });
+    const translatorReady = TFD.getTranslator({
+      signal: job.signal,
+      onProgress: (loaded) => showStatus(`번역 모델 다운로드 중… ${Math.round(loaded * 100)}%`),
     });
-    ui.showToast('번역 중…', { duration: 0 });
+    showStatus('번역 중…');
 
     try {
       const translator = await translatorReady;
       const result = await TFD.translateRange(range, {
-        translate: (text) => translator.translate(text),
+        translate: (text) => TFD.translateText(translator, text, job.signal),
         detector,
       });
       window.getSelection().removeAllRanges();
-      if (result.failed > 0) {
-        ui.showToast(`${result.translated}문장 번역, ${result.failed}문장은 용어 보호 처리에 실패해 원문으로 두었습니다.`);
-      } else if (result.translated === 0) {
-        ui.showToast('번역할 영어 문장을 찾지 못했습니다.');
-      } else {
-        ui.showToast(`${result.translated}문장을 번역했습니다. 번역된 부분을 드래그하면 원문으로 돌아갑니다.`);
-      }
+      report(result);
     } catch (err) {
-      ui.showToast(errorMessage(err), { type: 'error', duration: 6000 });
+      // 번역기를 만들지 못한 경우. getTranslator가 상태를 비워 두므로 다음 클릭에서 새로 시도한다.
+      const code = err instanceof TFD.TranslatorError ? err.code : 'unknown';
+      if (code === 'cancelled') ui.showToast('번역을 취소했습니다.');
+      else showFailure(code, { cause: err.cause || err });
     } finally {
       busy = false;
     }

@@ -198,7 +198,8 @@
   /**
    * @param {Range} selRange 사용자가 드래그한 영역
    * @param {{translate: (s: string) => Promise<string>, detector: object}} deps
-   * @returns {Promise<{translated: number, failed: number}>}
+   * @returns {Promise<{translated: number, failed: number, remaining: number, interrupted: Error|null}>}
+   *   interrupted: 번역이 중간에 멈춘 이유(시간 초과, 취소 등). 그 전에 끝난 문장은 화면에 반영된다.
    */
   async function translateRange(selRange, deps) {
     // 원문으로 돌려 둔 문장은 보관해 둔 번역문으로 바로 되돌린다.
@@ -207,12 +208,18 @@
 
     const targets = collectSentences(selRange);
     const results = [];
+    let interrupted = null;
 
     for (const target of targets) {
       const { source, items } = TFD.protectSentence(target.text, deps.detector);
       let translated = cache.get(source);
       if (translated === undefined) {
-        translated = (await deps.translate(source)).trim();
+        try {
+          translated = (await deps.translate(source)).trim();
+        } catch (err) {
+          interrupted = err;
+          break;
+        }
         cache.set(source, translated);
       }
       results.push({ target, restored: TFD.restoreSentence(translated, items) });
@@ -228,7 +235,12 @@
       }
       replaceWithTranslation(target, restored.parts);
     }
-    return { translated: results.length - failed + reshown, failed };
+    return {
+      translated: results.length - failed + reshown,
+      failed,
+      remaining: targets.length - results.length,
+      interrupted,
+    };
   }
 
   /** 선택 영역에 걸친 번역 문장을 모두 원문으로 보여 주고, 바꾼 문장 수를 돌려준다. */
