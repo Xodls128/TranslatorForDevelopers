@@ -68,6 +68,7 @@ test/
 
 ```bash
 npm test          # 단위 테스트
+npm install       # 처음 한 번: React 재현 테스트용 개발 의존성 (확장 프로그램 자체에는 포함되지 않음)
 npm run test:e2e  # Playwright + Chromium 필요
 ```
 

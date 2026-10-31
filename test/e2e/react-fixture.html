@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>react fixture</title>
+  <script src="../../node_modules/react/umd/react.development.js"></script>
+  <script src="../../node_modules/react-dom/umd/react-dom.development.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    // 번역 후 React가 DOM을 바꾸는 상황을 버튼으로 일으킨다. 버튼은 번역 대상 문단 밖에 둔다.
+    const h = React.createElement;
+
+    function App() {
+      const [count, setCount] = React.useState(0);
+      const [showText, setShowText] = React.useState(true);
+      const [showEm, setShowEm] = React.useState(true);
+      const [items, setItems] = React.useState(['Alpha item is first.', 'Beta item is second.']);
+      const [version, setVersion] = React.useState(0);
+
+      return h('article', null,
+        // ① 글자 갱신: 문장 안의 숫자(텍스트 노드)가 바뀐다.
+        h('p', { id: 'r-text' }, 'The counter is ', count, ' right now. It updates on click.'),
+        h('button', { id: 'btn-count', onClick: () => setCount((c) => c + 1) }, 'count'),
+
+        // ②-1 텍스트 노드 제거: 문장 사이의 텍스트 조각이 조건부로 사라진다.
+        h('p', { id: 'r-text-remove' }, 'Intro sentence comes first. ', showText && 'Optional sentence appears here. ', 'Final sentence ends it.'),
+        h('button', { id: 'btn-text-remove', onClick: () => setShowText((v) => !v) }, 'toggle text'),
+
+        // ②-2 인라인 요소 제거: 문장 안의 <em>이 조건부로 사라진다.
+        h('p', { id: 'r-em-remove' }, 'This sentence has ', showEm && h('em', null, 'emphasized words'), ' inside it.'),
+        h('button', { id: 'btn-em-remove', onClick: () => setShowEm((v) => !v) }, 'toggle em'),
+
+        // ②-3 목록 순서 변경: <li>가 재배치된다.
+        h('ul', { id: 'r-list' }, items.map((text) => h('li', { key: text }, text))),
+        h('button', { id: 'btn-reorder', onClick: () => setItems((list) => [...list].reverse()) }, 'reorder'),
+
+        // ③ 다시 그리기: key가 바뀌어 문단이 통째로 새로 만들어진다.
+        h('div', { id: 'r-remount', key: version }, h('p', null, 'Remounted paragraph text. It is recreated on click.')),
+        h('button', { id: 'btn-remount', onClick: () => setVersion((v) => v + 1) }, 'remount'),
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+  </script>
+</body>
+</html>
