@@ -18,6 +18,7 @@
       const [showEm, setShowEm] = React.useState(true);
       const [items, setItems] = React.useState(['Alpha item is first.', 'Beta item is second.']);
       const [version, setVersion] = React.useState(0);
+      const [clicks, setClicks] = React.useState(0);
 
       return h('article', null,
         // ① 글자 갱신: 문장 안의 숫자(텍스트 노드)가 바뀐다.
@@ -39,6 +40,13 @@
         // ③ 다시 그리기: key가 바뀌어 문단이 통째로 새로 만들어진다.
         h('div', { id: 'r-remount', key: version }, h('p', null, 'Remounted paragraph text. It is recreated on click.')),
         h('button', { id: 'btn-remount', onClick: () => setVersion((v) => v + 1) }, 'remount'),
+
+        // 클릭 전달: 문단 속 링크에 React 클릭 처리가 붙어 있다. (Next.js 링크처럼 기본 이동을 막고 직접 처리)
+        h('p', { id: 'r-link' }, 'Open ', h('a', { href: '#settings', onClick: (e) => { e.preventDefault(); setClicks((c) => c + 1); } }, 'the settings page'), ' to continue.'),
+        h('output', { id: 'r-clicks' }, String(clicks)),
+
+        // 입력창이 있는 문단: 사본을 만들지 않고 그 자리에서 번역한다.
+        h('p', { id: 'r-input' }, 'Type your name here. ', h('input', { 'aria-label': 'name' }), ' Then press enter.'),
       );
     }
 

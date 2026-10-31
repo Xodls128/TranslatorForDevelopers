@@ -1,3 +1,8 @@
+/* 사본을 만들어 둔 원본 문단은 숨긴다. 내용은 건드리지 않으므로 페이지(React 등)는 계속 원본을 관리한다. */
+[data-tfd-hidden] {
+  display: none !important;
+}
+
 /* 번역 문장 공통: 마우스를 올리면 문장 범위를 옅은 테두리로 표시 (여러 줄이면 줄마다 표시) */
 span.tfd-sentence {
   border-radius: 2px;

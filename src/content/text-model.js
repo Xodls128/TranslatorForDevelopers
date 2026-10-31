@@ -41,7 +41,8 @@
    */
   function classify(el) {
     const name = el.localName;
-    if (SKIP_TAGS.has(name) || el.id === UI_HOST_ID) return 'skip';
+    // 사본을 만들어 숨긴 원본 문단(mirror.js)은 화면에 없는 것으로 본다.
+    if (SKIP_TAGS.has(name) || el.id === UI_HOST_ID || el.hasAttribute('data-tfd-hidden')) return 'skip';
     if (name === 'pre' || el.classList.contains('tfd-sentence')) return 'opaque';
 
     const view = el.ownerDocument && el.ownerDocument.defaultView;

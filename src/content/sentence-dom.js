@@ -41,15 +41,18 @@
     return latin > 0 && latin >= hangul;
   }
 
-  /** 선택 영역이 걸친 문장들을 문서 순서대로 찾는다. */
-  function collectSentences(selRange) {
-    const rootEl = findBlockAncestor(selRange.commonAncestorContainer);
+  /**
+   * 선택 영역이 걸친 문장들을 문서 순서대로 찾는다.
+   * @param {Range|null} selRange null이면 rootEl 안의 모든 영어 문장
+   * @param {Element} [rootEl] 찾을 범위. 없으면 선택 영역을 감싸는 블록 요소
+   */
+  function collectSentences(selRange, rootEl = findBlockAncestor(selRange.commonAncestorContainer)) {
     const targets = [];
     for (const run of TFD.buildRuns(rootEl)) {
       for (const sentence of TFD.splitSentences(run.text)) {
         if (!isMostlyEnglish(sentence.text)) continue;
         const range = TFD.rangeForRun(run, sentence.start, sentence.end);
-        if (!rangesIntersect(range, selRange)) continue;
+        if (selRange && !rangesIntersect(range, selRange)) continue;
         targets.push({
           text: sentence.text,
           range,
@@ -267,18 +270,78 @@
       .filter((span) => selRange.intersectsNode(span));
   }
 
-  /**
-   * @param {Range} selRange 사용자가 드래그한 영역
-   * @param {{translate: (s: string) => Promise<string>, detector: object}} deps
-   * @returns {Promise<{translated: number, failed: number, remaining: number, interrupted: Error|null}>}
-   *   interrupted: 번역이 중간에 멈춘 이유(시간 초과, 취소 등). 그 전에 끝난 문장은 화면에 반영된다.
-   */
-  async function translateRange(selRange, deps) {
-    // 원문으로 돌려 둔 문장은 보관해 둔 번역문으로 바로 되돌린다.
-    let reshown = 0;
-    for (const span of spansInRange(selRange, 'original')) if (swap(span, 'translated')) reshown++;
+  // 문장이 속한 문단(가장 가까운 블록 요소). 이미 우리 사본 안이면 null.
+  function ownerBlock(target) {
+    const first = target.positions[0];
+    for (let el = (first.el || first.node).parentElement; el; el = el.parentElement) {
+      if (TFD.classifyElement(el) === 'block') return el.closest('.tfd-copy') ? null : el;
+    }
+    return null;
+  }
 
-    const targets = collectSentences(selRange);
+  // 원본 문단 안의 위치를 사본의 같은 위치로 옮긴다. (사본을 막 만든 직후라 구조가 같다)
+  function mapPoint(node, offset, from, to) {
+    const path = [];
+    for (let n = node; n !== from; n = n.parentNode) path.unshift(Array.prototype.indexOf.call(n.parentNode.childNodes, n));
+    let mapped = to;
+    for (const i of path) mapped = mapped.childNodes[i];
+    return [mapped, offset];
+  }
+
+  // 선택 영역 중 원본 문단에 걸친 부분을 사본 위의 Range로 바꾼다.
+  function mapRangeToCopy(selRange, owner, copy) {
+    const doc = owner.ownerDocument;
+    const ownerRange = doc.createRange();
+    ownerRange.selectNodeContents(owner);
+    const range = doc.createRange();
+    range.selectNodeContents(copy);
+    if (ownerRange.comparePoint(selRange.startContainer, selRange.startOffset) === 0) {
+      range.setStart(...mapPoint(selRange.startContainer, selRange.startOffset, owner, copy));
+    }
+    if (ownerRange.comparePoint(selRange.endContainer, selRange.endOffset) === 0) {
+      range.setEnd(...mapPoint(selRange.endContainer, selRange.endOffset, owner, copy));
+    }
+    return range;
+  }
+
+  /*
+   * 번역할 문장을 정한다.
+   * 페이지가 관리하는 원본 문단은 건드리지 않고, 사본을 만들어(mirror.js) 사본 안의 같은 문장을 번역한다.
+   * 이미 사본 안이거나 사본을 만들 수 없는 문단(입력창 포함 등)은 그 자리에서 번역한다.
+   */
+  function prepareTargets(selRange, deps) {
+    const initial = collectSentences(selRange);
+    // 사본을 만들면 원본이 숨김 처리되어 판정이 달라지므로, 문단은 사본을 만들기 전에 모두 정해 둔다.
+    const ownerOf = initial.map(ownerBlock);
+    const owners = [];
+    for (const owner of ownerOf) {
+      if (owner && TFD.canMirror(owner) && !owners.includes(owner)) owners.push(owner);
+    }
+    // 문단 안에 다른 문단이 있으면(목록 안의 목록 등) 바깥 문단 하나만 사본으로 만든다.
+    const outermost = owners.filter((o) => !owners.some((p) => p !== o && p.contains(o)));
+
+    const targets = [];
+    const mirrored = new Set();
+    for (const [i, target] of initial.entries()) {
+      const owner = ownerOf[i];
+      const top = owner && outermost.find((o) => o.contains(owner));
+      if (!top) {
+        targets.push(target);
+        continue;
+      }
+      if (mirrored.has(top)) continue;
+      mirrored.add(top);
+      const copy = TFD.mirrorBlock(top, deps);
+      targets.push(...collectSentences(mapRangeToCopy(selRange, top, copy), copy));
+    }
+    return targets;
+  }
+
+  /**
+   * 문장들을 번역해서 화면에 반영한다.
+   * @param {() => boolean} [isValid] 반영 직전에 확인. false면 반영하지 않는다. (그사이 사본이 바뀐 경우)
+   */
+  async function translateTargets(targets, deps, isValid = () => true) {
     const results = [];
     let interrupted = null;
 
@@ -302,20 +365,83 @@
 
     // DOM은 뒤 문장부터 바꾼다. (앞 문장의 위치가 흔들리지 않도록)
     let failed = 0;
+    const valid = isValid();
     for (let i = results.length - 1; i >= 0; i--) {
       const { target, restored } = results[i];
       if (!restored.ok) {
         failed++;
         continue;
       }
-      replaceWithTranslation(target, restored.parts);
+      if (valid) replaceWithTranslation(target, restored.parts);
     }
+    return { done: results.length, failed, interrupted };
+  }
+
+  /**
+   * @param {Range} selRange 사용자가 드래그한 영역
+   * @param {{translate: (s: string) => Promise<string>, backgroundTranslate?: (s: string) => Promise<string>, detector: object}} deps
+   *   backgroundTranslate: 페이지가 원본을 바꿔 사본을 다시 번역할 때 쓰는 번역 함수 (사용자 취소와 무관)
+   * @returns {Promise<{translated: number, failed: number, remaining: number, interrupted: Error|null, scope: Range}>}
+   *   interrupted: 번역이 중간에 멈춘 이유(시간 초과, 취소 등). 그 전에 끝난 문장은 화면에 반영된다.
+   *   scope: 실제로 번역 대상이 된 범위. 원본 대신 사본을 번역했으면 사본 위의 범위다.
+   */
+  async function translateRange(selRange, deps) {
+    // 원문으로 돌려 둔 문장은 보관해 둔 번역문으로 바로 되돌린다.
+    let reshown = 0;
+    for (const span of spansInRange(selRange, 'original')) if (swap(span, 'translated')) reshown++;
+
+    const targets = prepareTargets(selRange, deps);
+    const scope = scopeOf(targets, selRange);
+    const { done, failed, interrupted } = await translateTargets(targets, deps);
     return {
-      translated: results.length - failed + reshown,
+      translated: done - failed + reshown,
       failed,
-      remaining: targets.length - results.length,
+      remaining: targets.length - done,
       interrupted,
+      scope,
     };
+  }
+
+  // 실제로 번역한 문장들(사본 안일 수 있음)을 감싸는 Range. "다시 시도"에 쓴다.
+  // 살아 있는 Range라 그 안의 문장을 번역해 DOM이 바뀌어도 범위가 따라간다.
+  function scopeOf(targets, fallback) {
+    if (!targets.length) return fallback.cloneRange();
+    const first = targets[0].range;
+    const last = targets[targets.length - 1].range;
+    const scope = first.startContainer.ownerDocument.createRange();
+    scope.setStart(first.startContainer, first.startOffset);
+    scope.setEnd(last.endContainer, last.endOffset);
+    return scope;
+  }
+
+  const normalize = (s) => s.replace(/\s+/g, ' ').trim();
+
+  // 번역 문장의 원문 글자 (상태와 관계없이)
+  function originalText(span) {
+    const entry = stored.get(span.dataset.tfdId);
+    const source = span.dataset.tfdState === 'translated' && entry ? entry.original : span;
+    return normalize(source.textContent);
+  }
+
+  /** root 안 번역 문장들의 원문 글자와 상태. 사본을 다시 만들 때 무엇을 다시 번역할지 정하는 데 쓴다. */
+  function sentenceStates(root) {
+    return Array.from(root.querySelectorAll('span.tfd-sentence')).map((span) => ({
+      text: originalText(span),
+      state: span.dataset.tfdState,
+    }));
+  }
+
+  /** 원문 보기 상태였던 문장은 다시 만든 뒤에도 원문 보기로 돌려 둔다. */
+  function applySentenceStates(root, states) {
+    const originals = new Set(states.filter((s) => s.state === 'original').map((s) => s.text));
+    for (const span of root.querySelectorAll('span.tfd-sentence[data-tfd-state="translated"]')) {
+      if (originals.has(originalText(span))) swap(span, 'original');
+    }
+  }
+
+  /** root 안 번역 문장들의 보관 데이터를 지운다. (사본을 버릴 때) */
+  function forgetSentences(root) {
+    for (const span of root.querySelectorAll('span.tfd-sentence')) stored.delete(span.dataset.tfdId);
   }
 
   /** 선택 영역에 걸친 번역 문장을 모두 원문으로 보여 주고, 바꾼 문장 수를 돌려준다. */
@@ -335,7 +461,12 @@
   }
 
   TFD.collectSentences = collectSentences;
+  TFD.translateTargets = translateTargets;
   TFD.translateRange = translateRange;
+  TFD.sentenceStates = sentenceStates;
+  TFD.applySentenceStates = applySentenceStates;
+  TFD.forgetSentences = forgetSentences;
+  TFD.normalizeText = normalize;
   TFD.showOriginalInRange = showOriginalInRange;
   TFD.touchesTranslation = touchesTranslation;
   TFD.showTranslation = showTranslation;

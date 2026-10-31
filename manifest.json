@@ -19,6 +19,7 @@
         "src/core/error-messages.js",
         "src/content/text-model.js",
         "src/content/sentence-dom.js",
+        "src/content/mirror.js",
         "src/content/translator.js",
         "src/content/ui.js",
         "src/content/main.js"

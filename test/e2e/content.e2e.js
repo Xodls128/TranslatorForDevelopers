@@ -89,6 +89,8 @@ async function clickTranslate() {
   await page.waitForFunction(() => !document.getElementById('tfd-ui-host').shadowRoot.querySelector('.toast').textContent.includes('번역 중'));
 }
 
+// 사본을 만들 때 원본과 사본의 링크·버튼에 다는 클릭 전달용 번호는 비교에서 뺀다.
+const withoutRefs = (html) => html.replace(/ data-tfd-ref="\d+"/g, '');
 const states = (selector) => page.$$eval(`${selector} .tfd-sentence`, (els) => els.map((el) => el.dataset.tfdState));
 const texts = (selector) => page.$$eval(`${selector} .tfd-sentence`, (els) => els.map((el) => el.textContent));
 
@@ -248,15 +250,15 @@ test('링크: 일반 링크는 "한국어[원문]"으로 바꾸고 링크 기능
   const long = await page.$eval('#links a[href="#long"]', (a) => ({ text: a.textContent, title: a.title }));
   assert.deepEqual(long, { text: '여섯 단어보다 긴 아주 긴 링크 글자', title: '원문: very long link text that spans more than six words here' });
 
-  // 번역 결과가 영어 그대로면 원래 링크 그대로
-  assert.equal(await page.$eval('#links a[href="#same"]', (a) => a.outerHTML), '<a href="#same">Vite docs</a>');
+  // 번역 결과가 영어 그대로면 원래 링크 그대로 (클릭 전달용 data-tfd-ref만 붙음)
+  assert.equal(withoutRefs(await page.$eval('#links a[href="#same"]', (a) => a.outerHTML)), '<a href="#same">Vite docs</a>');
 
   // 원문 보기로 돌리면 원래 링크 그대로
   for (const [start, end] of [['자세한', '내용은'], ['[ko] Read', 'Read'], ['[ko] ', 'exists'], ['[ko] Check', 'Check']]) {
     await select('#links', start, end);
   }
   const restored = await page.$$eval('#links .tfd-sentence', (els) => els.map((el) => el.innerHTML).join(' '));
-  assert.equal(restored, original);
+  assert.equal(withoutRefs(restored), original);
 });
 
 test('<pre> 코드 블록과 한국어 문단은 번역하지 않는다', async () => {

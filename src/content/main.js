@@ -142,9 +142,13 @@
       const translator = await translatorReady;
       const result = await TFD.translateRange(range, {
         translate: (text) => TFD.translateText(translator, text, job.signal),
+        // 페이지가 원본 문단을 바꿔 사본을 다시 번역할 때 쓴다. 이번 작업의 취소와는 무관하다.
+        backgroundTranslate: (text) => TFD.translateText(translator, text),
         detector,
       });
       window.getSelection().removeAllRanges();
+      // 원본 문단 대신 사본을 번역했을 수 있으므로, 다시 시도할 범위는 실제로 번역한 범위로 바꾼다.
+      lastRange = result.scope;
       report(result);
     } catch (err) {
       // 번역기를 만들지 못한 경우. getTranslator가 상태를 비워 두므로 다음 클릭에서 새로 시도한다.
@@ -172,7 +176,13 @@
 
     // 원문으로 전환된 문장을 클릭하면 번역문으로 되돌린다. (문장 안 링크 클릭은 그대로 둔다)
     const sentence = e.target.closest('.tfd-sentence[data-tfd-state="original"]');
-    if (sentence && !e.target.closest('a')) TFD.showTranslation(sentence);
+    if (sentence && !e.target.closest('a')) {
+      TFD.showTranslation(sentence);
+      return;
+    }
+
+    // 문단 사본 안의 링크·버튼은 원본의 같은 요소로 클릭을 전달한다. (React 등 페이지 동작 유지)
+    TFD.forwardClick(e);
   }
 
   document.addEventListener('mousedown', onPointerDown, true);

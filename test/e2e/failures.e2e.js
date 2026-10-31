@@ -63,6 +63,7 @@ async function openPage({ stallMs = 300, sentenceMs = 300, noApi = false } = {})
   if (noApi) await page.addInitScript('delete window.Translator;');
   await page.goto('file://' + path.join(__dirname, 'fixture.html'));
   for (const file of contentScripts) await page.addScriptTag({ path: path.join(ROOT, file) });
+  await page.addStyleTag({ path: path.join(ROOT, 'src/content/content.css') });
   await page.evaluate(([stall, sentence]) => {
     TFD.TRANSLATOR_TIMEOUTS.downloadStallMs = stall;
     TFD.TRANSLATOR_TIMEOUTS.sentenceMs = sentence;
