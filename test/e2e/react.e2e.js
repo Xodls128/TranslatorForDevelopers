@@ -205,20 +205,49 @@ test('캔버스가 있는 문단은 번역하지 않고 알린다', async () => 
   await page.close();
 });
 
-test('원본 보기: Alt를 누르고 있는 동안 원본이 보이고, 떼면 번역본으로 돌아온다', async () => {
+test('원본 보기: Shift를 0.3초 이상 누르고 있는 동안 원본이 보이고, 떼면 번역본으로 돌아온다', async () => {
   const { page } = await openPage();
   await translate(page, '#r-text');
   const visibility = () => page.evaluate(() => [...document.querySelectorAll('#r-text')].map((el) => el.checkVisibility()));
   assert.deepEqual(await visibility(), [true, false]);
-  await page.keyboard.down('Alt');
+
+  await page.keyboard.down('Shift');
+  // 누르자마자는 아직 번역본 (대문자 입력과 겹치지 않도록 잠깐 기다린다)
+  assert.deepEqual(await visibility(), [true, false]);
+  await page.waitForTimeout(400);
   assert.deepEqual(await visibility(), [false, true]);
-  await page.keyboard.up('Alt');
+  await page.keyboard.up('Shift');
   assert.deepEqual(await visibility(), [true, false]);
-  // Alt와 다른 키를 함께 누르면(단축키) 원본 보기를 끝낸다.
-  await page.keyboard.down('Alt');
+  await page.close();
+});
+
+test('원본 보기: 대문자 입력·Shift+클릭·입력창에서는 켜지지 않거나 바로 꺼진다', async () => {
+  const { page } = await openPage();
+  await translate(page, '#r-text');
+  const visibility = () => page.evaluate(() => [...document.querySelectorAll('#r-text')].map((el) => el.checkVisibility()));
+
+  // 대문자 입력처럼 Shift와 다른 키를 함께 누르면 켜지지 않는다.
+  await page.keyboard.down('Shift');
   await page.keyboard.press('KeyF');
+  await page.waitForTimeout(400);
   assert.deepEqual(await visibility(), [true, false]);
-  await page.keyboard.up('Alt');
+  await page.keyboard.up('Shift');
+
+  // 켜진 상태에서 마우스를 누르면(Shift+클릭) 바로 번역본으로 돌아온다.
+  await page.keyboard.down('Shift');
+  await page.waitForTimeout(400);
+  assert.deepEqual(await visibility(), [false, true]);
+  await page.mouse.down();
+  assert.deepEqual(await visibility(), [true, false]);
+  await page.mouse.up();
+  await page.keyboard.up('Shift');
+
+  // 입력창에 커서가 있으면 켜지지 않는다.
+  await page.focus('#r-input input');
+  await page.keyboard.down('Shift');
+  await page.waitForTimeout(400);
+  assert.deepEqual(await visibility(), [true, false]);
+  await page.keyboard.up('Shift');
   await page.close();
 });
 

@@ -198,22 +198,37 @@
   }, true);
   document.addEventListener('click', onClick, true);
 
-  // Alt를 단독으로 누르고 있는 동안 원본 보기. 다른 키와 함께 누르면(단축키) 원본 보기를 끝낸다.
+  // Shift를 단독으로 0.3초 이상 누르고 있는 동안 원본 보기.
+  // 대문자 입력·Shift+방향키·Shift+클릭과 겹치지 않도록 잠깐 기다렸다가 켜고,
+  // 다른 키나 마우스를 누르면 바로 끝내며, 입력창에 커서가 있을 때는 동작하지 않는다.
+  const PEEK_DELAY_MS = 300;
   let peeking = false;
+  let peekTimer = null;
   function setPeek(on) {
     if (peeking === on) return;
     peeking = on;
     TFD.peekOriginals(on);
   }
+  function cancelPeek() {
+    clearTimeout(peekTimer);
+    peekTimer = null;
+    setPeek(false);
+  }
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') ui.hideButton();
-    if (e.key === 'Alt' && !e.ctrlKey && !e.metaKey && !e.shiftKey) setPeek(true);
-    else setPeek(false);
+    if (e.key !== 'Shift') {
+      cancelPeek();
+      return;
+    }
+    if (e.repeat || peekTimer || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (isEditable(document.activeElement || document.body)) return;
+    peekTimer = setTimeout(() => setPeek(true), PEEK_DELAY_MS);
   }, true);
   document.addEventListener('keyup', (e) => {
-    if (e.key === 'Alt') setPeek(false);
+    if (e.key === 'Shift') cancelPeek();
   }, true);
-  // Alt+Tab 등으로 창을 떠나면 keyup이 오지 않으므로 여기서 끝낸다.
-  window.addEventListener('blur', () => setPeek(false));
+  document.addEventListener('mousedown', cancelPeek, true);
+  // 다른 창으로 가면 keyup이 오지 않으므로 여기서 끝낸다.
+  window.addEventListener('blur', cancelPeek);
   window.addEventListener('scroll', () => ui.hideButton(), { passive: true, capture: true });
 })(typeof globalThis !== 'undefined' ? globalThis : this);
