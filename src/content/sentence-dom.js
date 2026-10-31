@@ -304,37 +304,64 @@
     return range;
   }
 
+  const sameRange = (a, b) =>
+    a.compareBoundaryPoints(Range.START_TO_START, b) === 0 && a.compareBoundaryPoints(Range.END_TO_END, b) === 0;
+
   /*
    * 번역할 문장을 정한다.
    * 페이지가 관리하는 원본 문단은 건드리지 않고, 사본을 만들어(mirror.js) 사본 안의 같은 문장을 번역한다.
-   * 이미 사본 안이거나 사본을 만들 수 없는 문단(입력창 포함 등)은 그 자리에서 번역한다.
+   * 이미 사본 안이거나 문서 최상위 글자는 그 자리에서 번역하고,
+   * 동영상·캔버스·iframe 등이 있어 복제할 수 없는 문단은 번역하지 않는다.
+   * @returns {{targets: object[], skipped: number, after: Function[]}} after: 번역을 반영한 뒤 실행할 작업
    */
   function prepareTargets(selRange, deps) {
     const initial = collectSentences(selRange);
-    // 사본을 만들면 원본이 숨김 처리되어 판정이 달라지므로, 문단은 사본을 만들기 전에 모두 정해 둔다.
+    // 사본을 만들면 원본이 숨김 처리되어 판정이 달라지므로, 문단과 처리 방식은 사본을 만들기 전에 모두 정해 둔다.
     const ownerOf = initial.map(ownerBlock);
+    const modeOf = ownerOf.map((owner) => (owner ? TFD.mirrorMode(owner) : 'in-place'));
     const owners = [];
-    for (const owner of ownerOf) {
-      if (owner && TFD.canMirror(owner) && !owners.includes(owner)) owners.push(owner);
-    }
+    ownerOf.forEach((owner, i) => {
+      if (modeOf[i] === 'mirror' && !owners.includes(owner)) owners.push(owner);
+    });
     // 문단 안에 다른 문단이 있으면(목록 안의 목록 등) 바깥 문단 하나만 사본으로 만든다.
     const outermost = owners.filter((o) => !owners.some((p) => p !== o && p.contains(o)));
 
     const targets = [];
-    const mirrored = new Set();
+    const after = [];
+    let skipped = 0;
+    const handled = new Map(); // 바깥 문단 → 사본을 만들었는지
     for (const [i, target] of initial.entries()) {
-      const owner = ownerOf[i];
-      const top = owner && outermost.find((o) => o.contains(owner));
+      if (modeOf[i] === 'skip') {
+        skipped++;
+        continue;
+      }
+      const top = modeOf[i] === 'mirror' && outermost.find((o) => o.contains(ownerOf[i]));
       if (!top) {
         targets.push(target);
         continue;
       }
-      if (mirrored.has(top)) continue;
-      mirrored.add(top);
-      const copy = TFD.mirrorBlock(top, deps);
-      targets.push(...collectSentences(mapRangeToCopy(selRange, top, copy), copy));
+      if (handled.has(top)) {
+        if (!handled.get(top)) skipped++;
+        continue;
+      }
+      const mirrored = TFD.mirrorBlock(top, deps);
+      handled.set(top, !!mirrored);
+      if (!mirrored) {
+        skipped++;
+        continue;
+      }
+      const { copy, carried } = mirrored;
+      const selected = collectSentences(mapRangeToCopy(selRange, top, copy), copy);
+      // 안쪽 문단 사본에서 번역해 두었던 문장도 바깥 사본에서 다시 번역한다. (같은 문장은 캐시라 바로 나옴)
+      if (carried.length) {
+        const extra = TFD.pickTargets(collectSentences(null, copy), carried.map((s) => s.text));
+        for (const t of extra) if (!selected.some((s) => sameRange(s.range, t.range))) selected.push(t);
+        selected.sort((a, b) => a.range.compareBoundaryPoints(Range.START_TO_START, b.range));
+        after.push(() => applySentenceStates(copy, carried));
+      }
+      targets.push(...selected);
     }
-    return targets;
+    return { targets, skipped, after };
   }
 
   /**
@@ -381,7 +408,8 @@
    * @param {Range} selRange 사용자가 드래그한 영역
    * @param {{translate: (s: string) => Promise<string>, backgroundTranslate?: (s: string) => Promise<string>, detector: object}} deps
    *   backgroundTranslate: 페이지가 원본을 바꿔 사본을 다시 번역할 때 쓰는 번역 함수 (사용자 취소와 무관)
-   * @returns {Promise<{translated: number, failed: number, remaining: number, interrupted: Error|null, scope: Range}>}
+   * @returns {Promise<{translated: number, failed: number, skipped: number, remaining: number, interrupted: Error|null, scope: Range}>}
+   *   skipped: 복제할 수 없는 문단(동영상·캔버스·iframe 등)이라 번역하지 않은 문장 수
    *   interrupted: 번역이 중간에 멈춘 이유(시간 초과, 취소 등). 그 전에 끝난 문장은 화면에 반영된다.
    *   scope: 실제로 번역 대상이 된 범위. 원본 대신 사본을 번역했으면 사본 위의 범위다.
    */
@@ -390,12 +418,14 @@
     let reshown = 0;
     for (const span of spansInRange(selRange, 'original')) if (swap(span, 'translated')) reshown++;
 
-    const targets = prepareTargets(selRange, deps);
+    const { targets, skipped, after } = prepareTargets(selRange, deps);
     const scope = scopeOf(targets, selRange);
     const { done, failed, interrupted } = await translateTargets(targets, deps);
+    for (const task of after) task();
     return {
       translated: done - failed + reshown,
       failed,
+      skipped,
       remaining: targets.length - done,
       interrupted,
       scope,

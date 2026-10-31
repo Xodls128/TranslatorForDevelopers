@@ -113,12 +113,18 @@
       }
     } else if (result.failed > 0) {
       showFailure('protect-failed', { translated: result.translated, failed: result.failed });
+    } else if (result.translated === 0 && result.skipped > 0) {
+      ui.showToast(`${SKIPPED_NOTE(result.skipped)}`, { duration: 5000 });
     } else if (result.translated === 0) {
       ui.showToast('번역할 영어 문장을 찾지 못했습니다.');
+    } else if (result.skipped > 0) {
+      ui.showToast(`${result.translated}문장을 번역했습니다. ${SKIPPED_NOTE(result.skipped)}`, { duration: 5000 });
     } else {
       ui.showToast(`${result.translated}문장을 번역했습니다. 번역된 부분을 드래그하면 원문으로 돌아갑니다.`);
     }
   }
+
+  const SKIPPED_NOTE = (n) => `${n}문장은 동영상·그림·삽입된 페이지가 있는 문단이라 번역하지 않았습니다.`;
 
   async function handleTranslate() {
     const range = pendingRange;
@@ -191,8 +197,23 @@
     if (e.shiftKey || e.key === 'Shift') onSelectionDone(e);
   }, true);
   document.addEventListener('click', onClick, true);
+
+  // Alt를 단독으로 누르고 있는 동안 원본 보기. 다른 키와 함께 누르면(단축키) 원본 보기를 끝낸다.
+  let peeking = false;
+  function setPeek(on) {
+    if (peeking === on) return;
+    peeking = on;
+    TFD.peekOriginals(on);
+  }
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') ui.hideButton();
-  });
+    if (e.key === 'Alt' && !e.ctrlKey && !e.metaKey && !e.shiftKey) setPeek(true);
+    else setPeek(false);
+  }, true);
+  document.addEventListener('keyup', (e) => {
+    if (e.key === 'Alt') setPeek(false);
+  }, true);
+  // Alt+Tab 등으로 창을 떠나면 keyup이 오지 않으므로 여기서 끝낸다.
+  window.addEventListener('blur', () => setPeek(false));
   window.addEventListener('scroll', () => ui.hideButton(), { passive: true, capture: true });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

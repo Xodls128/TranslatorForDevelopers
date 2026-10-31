@@ -5,6 +5,8 @@
   <title>fixture</title>
   <style>
     .badge { display: inline-block; padding: 0 4px; border: 1px solid #ccc; }
+    #m-wrap p { margin: 16px 0; }
+    #m-wrap p:last-child { margin-bottom: 0; }
   </style>
 </head>
 <body>
@@ -22,6 +24,10 @@
     <p id="em-inside"><em>Always validate input.</em> Then continue.</p>
     <p id="em-item">Every <strong>closure</strong> keeps its scope. Use <em><code>bind()</code></em> sparingly.</p>
     <p id="em-partial">This has <strong>partly bold</strong> words.</p>
+    <div id="m-wrap"><p>First paragraph in box.</p><p id="m-last">Last paragraph in box.</p></div>
+    <ul id="nest">
+      <li id="outer">Outer item text. <ul><li id="inner">Inner item text. Second inner sentence.</li></ul></li>
+    </ul>
     <p id="links">See <a href="#guide">the closures guide</a> for details. Read <a href="#promise">Promise</a> and <a href="#map"><code>map()</code></a> docs. A <a href="#long">very long link text that spans more than six words here</a> exists. Check <a href="#same">Vite docs</a> too.</p>
   </article>
 </body>

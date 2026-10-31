@@ -3,6 +3,14 @@
   display: none !important;
 }
 
+/* 사본의 입력창은 입력을 막은 것처럼 흐리게 보인다. 누르면 원문 문단에서 입력한다. */
+.tfd-copy input,
+.tfd-copy textarea,
+.tfd-copy select {
+  opacity: 0.55;
+  cursor: pointer;
+}
+
 /* 번역 문장 공통: 마우스를 올리면 문장 범위를 옅은 테두리로 표시 (여러 줄이면 줄마다 표시) */
 span.tfd-sentence {
   border-radius: 2px;

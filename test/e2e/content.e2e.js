@@ -261,6 +261,32 @@ test('링크: 일반 링크는 "한국어[원문]"으로 바꾸고 링크 기능
   assert.equal(withoutRefs(restored), original);
 });
 
+test('사본은 원본에 실제 적용되던 위아래 여백을 쓴다 (:last-child 규칙 유지)', async () => {
+  const before = await page.$eval('#m-wrap', (el) => el.getBoundingClientRect().height);
+  await select('#m-last', 'Last', 'box');
+  await clickTranslate();
+  const copyMargin = await page.$eval('#m-last.tfd-copy', (el) => getComputedStyle(el).marginBottom);
+  assert.equal(copyMargin, '0px');
+  // 글자 길이가 달라져 줄 수가 바뀌지 않는 한 상자 높이도 그대로다.
+  assert.equal(await page.$eval('#m-wrap', (el) => el.getBoundingClientRect().height), before);
+});
+
+test('문단 안 문단: 안쪽을 번역한 뒤 바깥을 번역해도 안쪽 번역과 원문 보기 상태가 유지된다', async () => {
+  await select('#inner', 'Inner', 'sentence');
+  await clickTranslate();
+  // 안쪽 두 번째 문장은 원문 보기로 돌려 둔다.
+  await select('#inner.tfd-copy', '[ko] Second', 'Second');
+  assert.deepEqual(await states('#inner.tfd-copy'), ['translated', 'original']);
+
+  await select('#outer', 'Outer', 'text');
+  await clickTranslate();
+  const outer = await page.$eval('#outer.tfd-copy', (el) => el.innerText.replace(/\s+/g, ' ').trim());
+  assert.equal(outer, '[ko] Outer item text. [ko] Inner item text. Second inner sentence.');
+  assert.deepEqual(await states('#outer.tfd-copy'), ['translated', 'translated', 'original']);
+  // 안쪽 사본은 정리되고 바깥 사본 하나만 남는다.
+  assert.equal(await page.$$eval('.tfd-copy #inner.tfd-copy, #nest > .tfd-copy', (els) => els.length), 1);
+});
+
 test('<pre> 코드 블록과 한국어 문단은 번역하지 않는다', async () => {
   const before = await page.evaluate(() => window.__translated.length);
   await select('#code', 'const', 'price');

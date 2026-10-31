@@ -157,14 +157,76 @@ test('사본은 원본 앞에 놓이고, 원본은 숨겨진다', async () => {
   await page.close();
 });
 
-test('입력창이 있는 문단은 사본을 만들지 않고 그 자리에서 번역한다', async () => {
+test('입력창 문단: 사본에서는 입력이 막히고, 누르면 원본 문단에서 입력한 뒤 번역본으로 돌아온다', async () => {
   const { page, errors } = await openPage();
   await translate(page, '#r-input');
-  assert.equal(await page.$$eval('#r-input', (els) => els.length), 1);
-  assert.equal(await visibleText(page, '#r-input'), '[ko] Type your name here. [ko] Then press enter.');
-  // 입력창은 원래 그 요소 그대로라 React 상태와 연결이 유지된다.
-  await page.fill('#r-input input', 'Kim');
-  assert.equal(await page.$eval('#r-input input', (el) => el.value), 'Kim');
+  assert.equal(await visibleText(page, '#r-input.tfd-copy'), '[ko] Type your name here. [ko] Then press enter.');
+
+  // 사본 입력창을 누르면 그 문단만 원본이 보이고, 원본 입력창에 커서가 간다.
+  await page.locator('#r-input.tfd-copy input').click();
+  const editing = await page.evaluate(() => {
+    const [copy, original] = document.querySelectorAll('#r-input');
+    return {
+      copyVisible: copy.checkVisibility(),
+      originalVisible: original.checkVisibility(),
+      focused: document.activeElement === original.querySelector('input'),
+    };
+  });
+  assert.deepEqual(editing, { copyVisible: false, originalVisible: true, focused: true });
+
+  // 원본 입력창에 입력하면 React 상태가 바뀐다.
+  await page.keyboard.type('Kim');
+  assert.equal(await page.$eval('#r-name', (el) => el.textContent), 'Kim');
+
+  // 문단 밖을 누르면 번역본으로 돌아오고, 사본 입력창에도 입력한 값이 보인다.
+  await page.mouse.click(5, 5);
+  await page.waitForTimeout(100);
+  const after = await page.evaluate(() => {
+    const [copy, original] = document.querySelectorAll('#r-input');
+    return {
+      copyVisible: copy.checkVisibility(),
+      originalVisible: original.checkVisibility(),
+      copyValue: copy.querySelector('input').value,
+    };
+  });
+  assert.deepEqual(after, { copyVisible: true, originalVisible: false, copyValue: 'Kim' });
+  assert.equal(await visibleText(page, '#r-input.tfd-copy'), '[ko] Type your name here. [ko] Then press enter.');
   assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test('캔버스가 있는 문단은 번역하지 않고 알린다', async () => {
+  const { page } = await openPage();
+  await translate(page, '#r-canvas');
+  assert.equal(await page.$$eval('#r-canvas', (els) => els.length), 1);
+  assert.equal(await page.$$eval('.tfd-sentence', (els) => els.length), 0);
+  const toast = await page.evaluate(() => document.getElementById('tfd-ui-host').shadowRoot.querySelector('.toast .message').textContent);
+  assert.equal(toast, '2문장은 동영상·그림·삽입된 페이지가 있는 문단이라 번역하지 않았습니다.');
+  await page.close();
+});
+
+test('원본 보기: Alt를 누르고 있는 동안 원본이 보이고, 떼면 번역본으로 돌아온다', async () => {
+  const { page } = await openPage();
+  await translate(page, '#r-text');
+  const visibility = () => page.evaluate(() => [...document.querySelectorAll('#r-text')].map((el) => el.checkVisibility()));
+  assert.deepEqual(await visibility(), [true, false]);
+  await page.keyboard.down('Alt');
+  assert.deepEqual(await visibility(), [false, true]);
+  await page.keyboard.up('Alt');
+  assert.deepEqual(await visibility(), [true, false]);
+  // Alt와 다른 키를 함께 누르면(단축키) 원본 보기를 끝낸다.
+  await page.keyboard.down('Alt');
+  await page.keyboard.press('KeyF');
+  assert.deepEqual(await visibility(), [true, false]);
+  await page.keyboard.up('Alt');
+  await page.close();
+});
+
+test('숨김 보강: 사이트 CSS가 display를 강제해도 원본은 숨겨진다', async () => {
+  const { page } = await openPage();
+  await page.addStyleTag({ content: '#r-text { display: block !important; }' });
+  await translate(page, '#r-text');
+  const visibility = await page.evaluate(() => [...document.querySelectorAll('#r-text')].map((el) => el.checkVisibility()));
+  assert.deepEqual(visibility, [true, false]);
   await page.close();
 });

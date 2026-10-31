@@ -19,6 +19,7 @@
       const [items, setItems] = React.useState(['Alpha item is first.', 'Beta item is second.']);
       const [version, setVersion] = React.useState(0);
       const [clicks, setClicks] = React.useState(0);
+      const [name, setName] = React.useState('');
 
       return h('article', null,
         // ① 글자 갱신: 문장 안의 숫자(텍스트 노드)가 바뀐다.
@@ -45,8 +46,12 @@
         h('p', { id: 'r-link' }, 'Open ', h('a', { href: '#settings', onClick: (e) => { e.preventDefault(); setClicks((c) => c + 1); } }, 'the settings page'), ' to continue.'),
         h('output', { id: 'r-clicks' }, String(clicks)),
 
-        // 입력창이 있는 문단: 사본을 만들지 않고 그 자리에서 번역한다.
-        h('p', { id: 'r-input' }, 'Type your name here. ', h('input', { 'aria-label': 'name' }), ' Then press enter.'),
+        // 입력창이 있는 문단: 사본에서는 입력을 막고, 누르면 원본 문단에서 입력한다. (React가 관리하는 입력창)
+        h('p', { id: 'r-input' }, 'Type your name here. ', h('input', { 'aria-label': 'name', value: name, onChange: (e) => setName(e.target.value) }), ' Then press enter.'),
+        h('output', { id: 'r-name' }, name),
+
+        // 캔버스가 있는 문단: 복제하면 그림이 비므로 번역하지 않는다.
+        h('p', { id: 'r-canvas' }, 'The chart below shows usage. ', h('canvas', { width: 40, height: 20 }), ' It updates daily.'),
       );
     }
 
