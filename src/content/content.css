@@ -24,6 +24,12 @@ span.tfd-sentence[data-tfd-state="original"]:hover {
   background-color: rgba(31, 111, 235, 0.06);
 }
 
+/* 번역된 링크 뒤의 원문 병기: 한국어가 먼저 읽히도록 조금 작고 옅게 */
+span.tfd-link-original {
+  font-size: 0.85em;
+  opacity: 0.7;
+}
+
 /* 보존된 개발 용어: 클릭하면 검색 */
 span.tfd-term {
   text-decoration: underline dotted;

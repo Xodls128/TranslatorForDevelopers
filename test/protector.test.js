@@ -62,6 +62,29 @@ test('fixParticle', () => {
   assert.equal(fixParticle(' 이 방법'), ' 이 방법');
 });
 
+test('fixParticle: 앞말이 한글이면 받침에 맞는 조사 하나를 고른다', () => {
+  assert.equal(fixParticle('을 참조하세요.', '가이드'), '를 참조하세요.');
+  assert.equal(fixParticle('를 참조하세요.', '방법'), '을 참조하세요.');
+  assert.equal(fixParticle('는 빠르다', '객체'), '는 빠르다');
+  assert.equal(fixParticle('는 빠르다', '환경'), '은 빠르다');
+  assert.equal(fixParticle('가 필요하다', '함수'), '가 필요하다');
+  assert.equal(fixParticle('와 함께', '배열'), '과 함께');
+  assert.equal(fixParticle('라는 개념', '어휘적 환경'), '이라는 개념');
+  // (으)로: 받침 없음·ㄹ 받침 → 로, 그 외 받침 → 으로
+  assert.equal(fixParticle('으로 변환', '가이드'), '로 변환');
+  assert.equal(fixParticle('으로 변환', '파일'), '로 변환');
+  assert.equal(fixParticle('로 변환', '방법'), '으로 변환');
+  // 앞말이 영어면 지금처럼 병기
+  assert.equal(fixParticle('는 빠르다', 'closure'), '은(는) 빠르다');
+  assert.equal(fixParticle('는 빠르다'), '은(는) 빠르다');
+});
+
+test('restoreSentence: 항목이 한국어로 들어가면 그 받침으로 조사를 고른다', () => {
+  const items = [{ kind: 'atom', atomIndex: 0 }];
+  const result = restoreSentence('자세한 내용은 ⟦0⟧을 참조하세요.', items, () => '클로저 가이드');
+  assert.equal(render(result.parts), '자세한 내용은 <atom0>를 참조하세요.');
+});
+
 test('buildSearchQuery / buildSearchUrl', () => {
   assert.equal(buildSearchQuery('Union'), '프로그래밍언어 Union');
   assert.equal(buildSearchQuery('Union', { topic: 'C' }), 'C에서 Union이란');

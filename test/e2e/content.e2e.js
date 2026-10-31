@@ -25,6 +25,15 @@ const FAKE_TRANSLATOR = `
     create: async () => ({
       translate: async (text) => {
         window.__translated.push(text);
+        // 링크 테스트용: 정해 둔 문장은 정해 둔 한국어로 번역한다.
+        const dict = {
+          'See ⟦0⟧ for details.': '자세한 내용은 ⟦0⟧을 참조하세요.',
+          // 링크 글자 안의 개발 용어(closures)도 보호되어 번역기에는 토큰으로 들어간다.
+          'the ⟦0⟧ guide': '⟦0⟧ 가이드.',
+          'very long link text that spans more than six words here': '여섯 단어보다 긴 아주 긴 링크 글자',
+          '⟦0⟧ docs': '⟦0⟧ docs',
+        };
+        if (dict[text]) return dict[text];
         // "A ⟦0⟧ ..." → "⟦0⟧는 ..." 처럼 조사를 붙여 조사 병기 처리를 확인한다.
         return '[ko] ' + text.replace(/^A (⟦\\d+⟧)/, '$1는');
       },
@@ -210,6 +219,44 @@ test('강조: 문장 일부의 일반 단어 강조는 아직 번역문에서 �
   await select('#em-partial', 'This', 'words');
   await clickTranslate();
   assert.equal(await page.$$eval('#em-partial .tfd-sentence strong', (els) => els.length), 0);
+});
+
+test('링크: 일반 링크는 "한국어[원문]"으로 바꾸고 링크 기능 유지, 조사는 받침에 맞춤', async () => {
+  const original = await page.$eval('#links', (el) => el.innerHTML);
+  await select('#links', 'See', 'too');
+  await clickTranslate();
+
+  const first = await page.$eval('#links .tfd-sentence:nth-of-type(1)', (el) => ({
+    text: el.textContent,
+    href: el.querySelector('a').getAttribute('href'),
+    original: el.querySelector('a .tfd-link-original').textContent,
+  }));
+  // 번역기가 붙인 마침표는 떼고, "을"은 "가이드"(받침 없음)에 맞춰 "를"로 바뀐다.
+  assert.equal(first.text, '자세한 내용은 closures 가이드[the closures guide]를 참조하세요.');
+  assert.equal(first.href, '#guide');
+  assert.equal(first.original, '[the closures guide]');
+
+  // API 이름 링크와 <code>를 품은 링크는 영어 그대로, 병기 없음
+  const second = await page.$eval('#links .tfd-sentence:nth-of-type(2)', (el) => ({
+    links: [...el.querySelectorAll('a')].map((a) => a.textContent),
+    originals: el.querySelectorAll('.tfd-link-original').length,
+  }));
+  assert.deepEqual(second.links, ['Promise', 'map()']);
+  assert.equal(second.originals, 0);
+
+  // 6단어 넘는 링크는 병기 대신 원문 툴팁
+  const long = await page.$eval('#links a[href="#long"]', (a) => ({ text: a.textContent, title: a.title }));
+  assert.deepEqual(long, { text: '여섯 단어보다 긴 아주 긴 링크 글자', title: '원문: very long link text that spans more than six words here' });
+
+  // 번역 결과가 영어 그대로면 원래 링크 그대로
+  assert.equal(await page.$eval('#links a[href="#same"]', (a) => a.outerHTML), '<a href="#same">Vite docs</a>');
+
+  // 원문 보기로 돌리면 원래 링크 그대로
+  for (const [start, end] of [['자세한', '내용은'], ['[ko] Read', 'Read'], ['[ko] ', 'exists'], ['[ko] Check', 'Check']]) {
+    await select('#links', start, end);
+  }
+  const restored = await page.$$eval('#links .tfd-sentence', (els) => els.map((el) => el.innerHTML).join(' '));
+  assert.equal(restored, original);
 });
 
 test('<pre> 코드 블록과 한국어 문단은 번역하지 않는다', async () => {

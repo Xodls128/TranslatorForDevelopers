@@ -123,6 +123,76 @@
     return wrapped;
   }
 
+  /*
+   * 링크 글자 번역
+   * 문장 번역에서 링크는 통째로 보존(⟦n⟧)하고, 링크 글자만 따로 번역해 "한국어[원문]"으로 바꾼다.
+   * API 이름·코드 링크(Promise, useState())와 <code> 등을 품은 링크는 영어 그대로 둔다.
+   */
+  const LONG_LINK_WORDS = 6; // 이보다 긴 링크는 병기 대신 원문 툴팁
+
+  function translatableLinkText(el, detector) {
+    if (el.localName !== 'a' || el.querySelector('code, kbd, samp, var, tt, img, svg, picture')) return null;
+    const text = el.textContent.replace(/\s+/g, ' ').trim();
+    if (!/[A-Za-z]/.test(text) || /[가-힣]/.test(text)) return null;
+    const spans = detector ? detector.detect(text) : [];
+    const wholeIsTermOrCode = spans.length === 1 && spans[0].start === 0 && spans[0].end === text.length;
+    return wholeIsTermOrCode ? null : text;
+  }
+
+  // 시간 초과와 사용자 취소는 번역 전체를 멈추는 신호다. 그 밖의 실패는 그 링크만 영어로 둔다.
+  function isInterruption(err) {
+    return !!err && (err.code === 'sentence-timeout' || err.code === 'cancelled');
+  }
+
+  async function translateCached(source, deps) {
+    let translated = cache.get(source);
+    if (translated === undefined) {
+      translated = (await deps.translate(source)).trim();
+      cache.set(source, translated);
+    }
+    return translated;
+  }
+
+  /** @returns {Promise<Map<object, {text: string, original: string, long: boolean}>>} 링크 항목 → 번역된 글자 */
+  async function translateLinks(target, items, deps) {
+    const labels = new Map();
+    for (const item of items) {
+      if (item.kind !== 'atom') continue;
+      const original = translatableLinkText(target.atoms[item.atomIndex], deps.detector);
+      if (!original) continue;
+
+      const { source, items: inner } = TFD.protectSentence(original, deps.detector);
+      let output;
+      try {
+        output = await translateCached(source, deps);
+      } catch (err) {
+        if (isInterruption(err)) throw err;
+        continue;
+      }
+      const restored = TFD.restoreSentence(output, inner);
+      if (!restored.ok) continue;
+      let text = restored.parts.map((p) => (p.type === 'text' ? p.text : p.item.text)).join('').trim();
+      // 명사구에 번역기가 붙인 마침표는 뗀다.
+      if (!/[.!?]$/.test(original)) text = text.replace(/[.!?。]+$/, '');
+      // 번역이 안 됐거나(영어 그대로) 원문과 같으면 병기하지 않고 원래 링크를 둔다.
+      if (!/[가-힣]/.test(text) || text.toLowerCase() === original.toLowerCase()) continue;
+      labels.set(item, { text, original, long: original.split(' ').length > LONG_LINK_WORDS });
+    }
+    return labels;
+  }
+
+  function applyLinkLabel(link, label) {
+    link.textContent = label.text;
+    if (label.long) {
+      link.title = `원문: ${label.original}`;
+      return;
+    }
+    const original = link.ownerDocument.createElement('span');
+    original.className = 'tfd-link-original';
+    original.textContent = `[${label.original}]`;
+    link.append(original);
+  }
+
   function renderParts(doc, parts, target, sentenceLevel) {
     const nodes = [];
     for (const part of parts) {
@@ -134,6 +204,8 @@
       let node;
       if (item.kind === 'atom') {
         node = target.atoms[item.atomIndex].cloneNode(true);
+        const label = target.linkLabels && target.linkLabels.get(item);
+        if (label) applyLinkLabel(node, label);
       } else {
         node = doc.createElement('span');
         node.className = item.kind === 'term' ? 'tfd-term' : 'tfd-code';
@@ -212,17 +284,20 @@
 
     for (const target of targets) {
       const { source, items } = TFD.protectSentence(target.text, deps.detector);
-      let translated = cache.get(source);
-      if (translated === undefined) {
-        try {
-          translated = (await deps.translate(source)).trim();
-        } catch (err) {
-          interrupted = err;
-          break;
-        }
-        cache.set(source, translated);
+      let translated;
+      try {
+        translated = await translateCached(source, deps);
+        target.linkLabels = await translateLinks(target, items, deps);
+      } catch (err) {
+        interrupted = err;
+        break;
       }
-      results.push({ target, restored: TFD.restoreSentence(translated, items) });
+      // 번역된 링크 뒤의 조사는 한국어 링크 글자의 받침에 맞춘다.
+      const displayText = (item) => {
+        const label = target.linkLabels.get(item);
+        return label && label.text;
+      };
+      results.push({ target, restored: TFD.restoreSentence(translated, items, displayText) });
     }
 
     // DOM은 뒤 문장부터 바꾼다. (앞 문장의 위치가 흔들리지 않도록)
