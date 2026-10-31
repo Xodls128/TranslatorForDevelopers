@@ -287,6 +287,51 @@ test('문단 안 문단: 안쪽을 번역한 뒤 바깥을 번역해도 안쪽 �
   assert.equal(await page.$$eval('.tfd-copy #inner.tfd-copy, #nest > .tfd-copy', (els) => els.length), 1);
 });
 
+test('Shift+방향키로 선택해도 번역 버튼이 뜬다', async () => {
+  // 앞 세 글자를 선택해 둔 상태에서 Shift+→로 선택을 늘린다.
+  // (편집할 수 없는 글자에서는 이미 선택된 범위가 있어야 Chrome이 키보드로 선택을 늘려 준다)
+  await page.evaluate(() => {
+    const text = document.querySelector('#kb').firstChild;
+    const range = document.createRange();
+    range.setStart(text, 0);
+    range.setEnd(text, 3);
+    getSelection().removeAllRanges();
+    getSelection().addRange(range);
+  });
+  await page.keyboard.down('Shift');
+  for (let i = 0; i < 8; i++) await page.keyboard.press('ArrowRight');
+  await page.keyboard.up('Shift');
+  await page.waitForTimeout(50);
+  assert.ok(await buttonBox(), 'Shift+방향키 선택 후 번역 버튼이 보여야 한다');
+  await clickTranslate();
+  assert.deepEqual(await states('#kb'), ['translated']);
+});
+
+test('번역문 단어를 더블클릭한 뒤 Shift만 눌렀다 떼도 원문으로 바뀌지 않는다', async () => {
+  const word = await page.$eval('#kb.tfd-copy .tfd-sentence', (el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.left + 40, y: r.top + r.height / 2 };
+  });
+  await page.mouse.dblclick(word.x, word.y);
+  await page.waitForTimeout(50);
+  assert.notEqual(await page.evaluate(() => getSelection().toString()), '');
+  assert.deepEqual(await states('#kb'), ['translated']);
+
+  // 짧게 누르기 (원본 보기 전)
+  await page.keyboard.down('Shift');
+  await page.waitForTimeout(100);
+  await page.keyboard.up('Shift');
+  await page.waitForTimeout(50);
+  assert.deepEqual(await states('#kb'), ['translated']);
+
+  // 0.3초 넘게 누르기 (원본 보기 후)
+  await page.keyboard.down('Shift');
+  await page.waitForTimeout(400);
+  await page.keyboard.up('Shift');
+  await page.waitForTimeout(50);
+  assert.deepEqual(await states('#kb'), ['translated']);
+});
+
 test('<pre> 코드 블록과 한국어 문단은 번역하지 않는다', async () => {
   const before = await page.evaluate(() => window.__translated.length);
   await select('#code', 'const', 'price');

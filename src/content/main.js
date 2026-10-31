@@ -193,8 +193,11 @@
 
   document.addEventListener('mousedown', onPointerDown, true);
   document.addEventListener('mouseup', onSelectionDone, true);
+  // Shift+방향키처럼 선택을 실제로 움직이는 키를 뗐을 때만 키보드 선택으로 본다.
+  // Shift만 눌렀다 떼는 것은 원본 보기 동작이라, 남아 있던 선택(더블클릭 등)을 건드리지 않는다.
+  const SELECTION_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']);
   document.addEventListener('keyup', (e) => {
-    if (e.shiftKey || e.key === 'Shift') onSelectionDone(e);
+    if (e.shiftKey && SELECTION_KEYS.has(e.key)) onSelectionDone(e);
   }, true);
   document.addEventListener('click', onClick, true);
 
