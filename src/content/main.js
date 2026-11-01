@@ -113,6 +113,8 @@
       }
     } else if (result.failed > 0) {
       showFailure('protect-failed', { translated: result.translated, failed: result.failed });
+    } else if (result.translated === 0 && result.rebuilt > 0) {
+      ui.showToast('번역하는 동안 페이지 내용이 바뀌어, 바뀐 문단을 새로 번역했습니다.');
     } else if (result.translated === 0 && result.skipped > 0) {
       ui.showToast(`${SKIPPED_NOTE(result.skipped)}`, { duration: 5000 });
     } else if (result.translated === 0) {

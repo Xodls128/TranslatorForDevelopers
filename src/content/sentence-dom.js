@@ -3,8 +3,9 @@
  *
  * 대상: 페이지가 관리하는 원본 문단은 건드리지 않고, 문단 사본(mirror.js)을 만들어 사본 안의 같은 문장을 번역한다.
  *       이미 사본 안이거나 문서 최상위 글자는 그 자리에서, 복제할 수 없는 문단(동영상·캔버스 등)은 번역하지 않는다.
- * 번역: 대상 문장마다 DOM 조각을 떼어 보관하고,
- *       그 자리에 번역문을 담은 <span class="tfd-sentence" data-tfd-id="n" data-tfd-state="translated">을 넣는다.
+ * 번역: ① 대상 문장마다 <span class="tfd-sentence" data-tfd-state="pending">으로 감싼다. (안에는 원문 그대로)
+ *       ② 읽는 순서대로 번역하며, 끝나는 문장부터 그 span 안의 내용만 번역문으로 바꾼다. (data-tfd-state="translated")
+ *       취소·시간 초과·토큰 깨짐이면 대기 중인 span을 걷어 내 원문을 제자리에 되돌린다.
  *       링크 글자는 따로 번역해 "한국어[원문]"으로, 강조 서식은 확실한 경우만 되살린다.
  * 전환: data-tfd-id(문장 번호)로 원문 조각과 번역문 조각을 모두 보관해 두고, span 안의 내용만 맞바꾼다.
  *       (data-tfd-state: translated | original)
@@ -43,21 +44,31 @@
     return latin > 0 && latin >= hangul;
   }
 
+  // 위치 계산용 Range는 하나만 만들어 재사용한다.
+  // 살아 있는 Range가 많으면 DOM이 바뀔 때마다 브라우저가 전부 갱신해야 해서, 문장이 많을 때 크게 느려진다.
+  let scratch = null;
+  function scratchRange(doc) {
+    if (!scratch || scratch.startContainer.ownerDocument !== doc) scratch = doc.createRange();
+    return scratch;
+  }
+
   /**
-   * 선택 영역이 걸친 문장들을 문서 순서대로 찾는다.
+   * 선택 영역이 걸친 문장들을 문서 순서대로 찾는다. Range 대신 글자 위치 정보를 담는다.
    * @param {Range|null} selRange null이면 rootEl 안의 모든 영어 문장
    * @param {Element} [rootEl] 찾을 범위. 없으면 선택 영역을 감싸는 블록 요소
    */
   function collectSentences(selRange, rootEl = findBlockAncestor(selRange.commonAncestorContainer)) {
     const targets = [];
+    const range = scratchRange(rootEl.ownerDocument);
     for (const run of TFD.buildRuns(rootEl)) {
       for (const sentence of TFD.splitSentences(run.text)) {
         if (!isMostlyEnglish(sentence.text)) continue;
-        const range = TFD.rangeForRun(run, sentence.start, sentence.end);
-        if (selRange && !rangesIntersect(range, selRange)) continue;
+        if (selRange && !rangesIntersect(TFD.setRangeForRun(range, run, sentence.start, sentence.end), selRange)) continue;
         targets.push({
           text: sentence.text,
-          range,
+          run,
+          start: sentence.start,
+          end: sentence.end,
           atoms: run.atoms,
           positions: run.positions.slice(sentence.start, sentence.end),
           rootEl,
@@ -66,6 +77,16 @@
     }
     return targets;
   }
+
+  /** 문장의 보이는 글자 (요소 자리는 그 요소의 글자로). 사본을 다시 만들 때 같은 문장인지 비교하는 데 쓴다. */
+  function plainTextOf(target) {
+    const text = target.text.replace(ATOM_RE, (ch) => target.atoms[ch.charCodeAt(0) - 0xe000].textContent);
+    return normalize(text);
+  }
+
+  // 문장 범위의 시작·끝 경계가 놓인 노드
+  const startContainerOf = (target) => TFD.startPoint(target.positions[0])[0];
+  const endContainerOf = (target) => TFD.endPoint(target.positions[target.positions.length - 1])[0];
 
   /*
    * 강조 서식 유지
@@ -99,20 +120,19 @@
   }
 
   // 문장 범위가 통째로 강조 요소 안에 있으면 번역문 span도 그 안에 들어가므로 다시 씌울 필요가 없다.
-  function inheritsFrom(el, range) {
-    return el.contains(range.startContainer) && el.contains(range.endContainer);
+  function inheritsFrom(el, target) {
+    return el.contains(startContainerOf(target)) && el.contains(endContainerOf(target));
   }
 
   function sentenceEmphasis(target) {
     const positions = target.positions.filter((_, i) => isContentChar(target.text[i]));
-    return commonEmphasis(positions, target.rootEl).filter((el) => !inheritsFrom(el, target.range));
+    return commonEmphasis(positions, target.rootEl).filter((el) => !inheritsFrom(el, target));
   }
 
   function itemEmphasis(target, item, alreadyApplied) {
-    const normalize = (s) => s.replace(/\s+/g, ' ').trim();
     const original = normalize(item.kind === 'atom' ? target.atoms[item.atomIndex].textContent : item.text);
     return commonEmphasis(target.positions.slice(item.start, item.end), target.rootEl).filter(
-      (el) => !alreadyApplied.includes(el) && !inheritsFrom(el, target.range) && normalize(el.textContent) === original,
+      (el) => !alreadyApplied.includes(el) && !inheritsFrom(el, target) && normalize(el.textContent) === original,
     );
   }
 
@@ -198,7 +218,8 @@
     link.append(original);
   }
 
-  function renderParts(doc, parts, target, sentenceLevel) {
+  function renderParts(doc, parts, job) {
+    const { target } = job;
     const nodes = [];
     for (const part of parts) {
       if (part.type === 'text') {
@@ -217,30 +238,75 @@
         if (item.kind === 'term') node.dataset.term = item.term;
         node.textContent = item.text;
       }
-      nodes.push(wrapWith(node, itemEmphasis(target, item, sentenceLevel)));
+      nodes.push(wrapWith(node, job.itemLevel.get(item)));
     }
     return nodes;
   }
 
-  function replaceWithTranslation(target, parts) {
-    const doc = target.range.startContainer.ownerDocument;
+  /**
+   * ① 감싸기: 대상 문장마다 "번역 중" span으로 감싼다. 안에는 원문이 그대로 보인다.
+   * 앞 문장의 위치 정보가 틀어지지 않도록 뒤 문장부터 감싸고, 작업용 Range는 하나만 쓴다.
+   * 보호 처리와 강조 판단처럼 원래 위치가 필요한 계산은 감싸기 전에 미리 해 둔다.
+   * @returns {object[]} 문서 순서의 작업 목록
+   */
+  function wrapPending(targets, detector) {
+    return quietly(() => wrapAll(targets, detector));
+  }
+
+  function wrapAll(targets, detector) {
+    const jobs = new Array(targets.length);
+    for (let i = targets.length - 1; i >= 0; i--) {
+      const target = targets[i];
+      const { source, items } = TFD.protectSentence(target.text, detector);
+      const sentenceLevel = sentenceEmphasis(target);
+      const itemLevel = new Map(items.map((item) => [item, itemEmphasis(target, item, sentenceLevel)]));
+
+      const doc = target.rootEl.ownerDocument;
+      const range = TFD.setRangeForRun(scratchRange(doc), target.run, target.start, target.end);
+      const span = doc.createElement('span');
+      span.className = 'tfd-sentence';
+      span.dataset.tfdState = 'pending';
+      span.append(range.extractContents());
+      range.insertNode(span);
+      jobs[i] = { target, span, source, items, sentenceLevel, itemLevel };
+    }
+    return jobs;
+  }
+
+  // 우리 DOM 작업은 사본 변화 감시(mirror.js)에서 뺀다.
+  const quietly = (fn) => (TFD.quietly ? TFD.quietly(fn) : fn());
+
+  // ② 채우기: "번역 중" span의 원문을 보관하고 번역문으로 바꾼다.
+  function fillTranslation(job, parts) {
+    quietly(() => fillSpan(job, parts));
+  }
+
+  function fillSpan(job, parts) {
+    const { span } = job;
+    const doc = span.ownerDocument;
+    const original = doc.createDocumentFragment();
+    original.append(...span.childNodes);
+    const content = doc.createDocumentFragment();
+    content.append(...renderParts(doc, parts, job));
+    span.append(wrapWith(content, job.sentenceLevel));
+
     const id = String(nextId++);
-    const span = doc.createElement('span');
-    span.className = 'tfd-sentence';
     span.dataset.tfdId = id;
     span.dataset.tfdState = 'translated';
     span.lang = 'ko';
+    stored.set(id, { original, translated: null });
+  }
 
-    // 원래 DOM을 떼어 내기 전에 강조 요소를 찾아야 한다.
-    const sentenceLevel = sentenceEmphasis(target);
-    const content = doc.createDocumentFragment();
-    content.append(...renderParts(doc, parts, target, sentenceLevel));
-    span.append(wrapWith(content, sentenceLevel));
-
-    const fragment = target.range.extractContents();
-    target.range.insertNode(span);
-    stored.set(id, { original: fragment, translated: null });
-    return span;
+  // 번역하지 못한 "번역 중" span을 걷어 내고 원문을 제자리에 되돌린다.
+  // span 앞에 하나씩 옮긴 뒤 span을 지운다. (replaceWith를 쓰면 "다시 시도" 범위의 끝 경계 밖으로 원문이 밀려난다)
+  function unwrap(span) {
+    const parent = span.parentNode;
+    if (!parent) return;
+    quietly(() => {
+      while (span.firstChild) parent.insertBefore(span.firstChild, span);
+      span.remove();
+      parent.normalize();
+    });
   }
 
   // 문장 span의 내용을 보관해 둔 반대 상태(원문/번역문) 조각과 맞바꾼다.
@@ -248,7 +314,11 @@
     const entry = stored.get(span.dataset.tfdId);
     const currentState = span.dataset.tfdState;
     if (!entry || currentState === nextState) return false;
+    quietly(() => swapContent(span, entry, currentState, nextState));
+    return true;
+  }
 
+  function swapContent(span, entry, currentState, nextState) {
     const current = span.ownerDocument.createDocumentFragment();
     current.append(...span.childNodes);
     entry[currentState] = current;
@@ -263,7 +333,6 @@
       span.removeAttribute('lang');
       span.title = '클릭하면 번역문으로 돌아갑니다';
     }
-    return true;
   }
 
   function spansInRange(selRange, state) {
@@ -306,8 +375,18 @@
     return range;
   }
 
-  const sameRange = (a, b) =>
-    a.compareBoundaryPoints(Range.START_TO_START, b) === 0 && a.compareBoundaryPoints(Range.END_TO_END, b) === 0;
+  const samePosition = (a, b) => a.node === b.node && a.el === b.el && a.offset === b.offset;
+  const sameTarget = (a, b) =>
+    samePosition(a.positions[0], b.positions[0]) &&
+    samePosition(a.positions[a.positions.length - 1], b.positions[b.positions.length - 1]);
+
+  // 문장 시작 위치로 문서 순서를 비교한다.
+  function compareTargets(a, b) {
+    const range = scratchRange(a.rootEl.ownerDocument);
+    range.setStart(...TFD.startPoint(a.positions[0]));
+    range.collapse(true);
+    return -range.comparePoint(...TFD.startPoint(b.positions[0]));
+  }
 
   /*
    * 번역할 문장을 정한다.
@@ -357,8 +436,8 @@
       // 안쪽 문단 사본에서 번역해 두었던 문장도 바깥 사본에서 다시 번역한다. (같은 문장은 캐시라 바로 나옴)
       if (carried.length) {
         const extra = TFD.pickTargets(collectSentences(null, copy), carried.map((s) => s.text));
-        for (const t of extra) if (!selected.some((s) => sameRange(s.range, t.range))) selected.push(t);
-        selected.sort((a, b) => a.range.compareBoundaryPoints(Range.START_TO_START, b.range));
+        for (const t of extra) if (!selected.some((s) => sameTarget(s, t))) selected.push(t);
+        selected.sort(compareTargets);
         after.push(() => applySentenceStates(copy, carried));
       }
       targets.push(...selected);
@@ -367,50 +446,71 @@
   }
 
   /**
-   * 문장들을 번역해서 화면에 반영한다.
-   * @param {() => boolean} [isValid] 반영 직전에 확인. false면 반영하지 않는다. (그사이 사본이 바뀐 경우)
+   * ② 읽는 순서대로 번역하며, 끝나는 문장부터 바로 화면에 반영한다.
+   * 멈추면(시간 초과·취소) 남은 "번역 중" 문장은 원문으로 되돌린다.
+   * @param {() => boolean} [isValid] false면 번역하지 않는다. (그사이 사본이 다시 만들어진 경우)
+   * @returns {Promise<{translated: number, failed: number, rebuilt: number, done: number, interrupted: Error|null}>}
+   *   translated: 실제로 화면에 반영한 문장 수, rebuilt: 사본이 다시 만들어져 그쪽에서 다시 번역하게 된 문장 수,
+   *   done: 처리를 마친 문장 수(반영·실패·넘김 포함)
    */
-  async function translateTargets(targets, deps, isValid = () => true) {
-    const results = [];
+  async function fillTranslations(jobs, deps, isValid = () => true) {
+    let translated = 0;
+    let failed = 0;
+    let rebuilt = 0;
     let interrupted = null;
-
-    for (const target of targets) {
-      const { source, items } = TFD.protectSentence(target.text, deps.detector);
-      let translated;
+    let i = 0;
+    for (; i < jobs.length; i++) {
+      const job = jobs[i];
+      // 사본이 다시 만들어져 화면에서 사라진 문장은 번역기도 부르지 않는다. (새 사본에서 다시 번역됨)
+      if (!job.span.isConnected || !isValid()) {
+        rebuilt++;
+        continue;
+      }
+      let output;
       try {
-        translated = await translateCached(source, deps);
-        target.linkLabels = await translateLinks(target, items, deps);
+        output = await translateCached(job.source, deps);
+        job.target.linkLabels = await translateLinks(job.target, job.items, deps);
       } catch (err) {
         interrupted = err;
         break;
       }
-      // 번역된 링크 뒤의 조사는 한국어 링크 글자의 받침에 맞춘다.
-      const displayText = (item) => {
-        const label = target.linkLabels.get(item);
-        return label && label.text;
-      };
-      results.push({ target, restored: TFD.restoreSentence(translated, items, displayText) });
-    }
-
-    // DOM은 뒤 문장부터 바꾼다. (앞 문장의 위치가 흔들리지 않도록)
-    let failed = 0;
-    const valid = isValid();
-    for (let i = results.length - 1; i >= 0; i--) {
-      const { target, restored } = results[i];
-      if (!restored.ok) {
-        failed++;
+      if (!job.span.isConnected) {
+        rebuilt++;
         continue;
       }
-      if (valid) replaceWithTranslation(target, restored.parts);
+      // 번역된 링크 뒤의 조사는 한국어 링크 글자의 받침에 맞춘다.
+      const displayText = (item) => {
+        const label = job.target.linkLabels.get(item);
+        return label && label.text;
+      };
+      const restored = TFD.restoreSentence(output, job.items, displayText);
+      if (restored.ok) {
+        fillTranslation(job, restored.parts);
+        translated++;
+      } else {
+        failed++;
+        unwrap(job.span);
+      }
     }
-    return { done: results.length, failed, interrupted };
+    const done = i;
+    for (; i < jobs.length; i++) {
+      if (jobs[i].span.dataset.tfdState === 'pending') unwrap(jobs[i].span);
+    }
+    return { translated, failed, rebuilt, done, interrupted };
+  }
+
+  /** 사본을 다시 만들 때 쓰는 번역: 감싸고 채운다. */
+  async function translateTargets(targets, deps, isValid = () => true) {
+    if (!isValid()) return { translated: 0, failed: 0, rebuilt: 0, done: 0, interrupted: null };
+    return fillTranslations(wrapPending(targets, deps.detector), deps, isValid);
   }
 
   /**
    * @param {Range} selRange 사용자가 드래그한 영역
    * @param {{translate: (s: string) => Promise<string>, backgroundTranslate?: (s: string) => Promise<string>, detector: object}} deps
    *   backgroundTranslate: 페이지가 원본을 바꿔 사본을 다시 번역할 때 쓰는 번역 함수 (사용자 취소와 무관)
-   * @returns {Promise<{translated: number, failed: number, skipped: number, remaining: number, interrupted: Error|null, scope: Range}>}
+   * @returns {Promise<{translated: number, failed: number, rebuilt: number, skipped: number, remaining: number, interrupted: Error|null, scope: Range}>}
+   *   rebuilt: 번역 도중 페이지가 문단을 바꿔, 새 사본에서 다시 번역하게 된 문장 수
    *   skipped: 복제할 수 없는 문단(동영상·캔버스·iframe 등)이라 번역하지 않은 문장 수
    *   interrupted: 번역이 중간에 멈춘 이유(시간 초과, 취소 등). 그 전에 끝난 문장은 화면에 반영된다.
    *   scope: 실제로 번역 대상이 된 범위. 원본 대신 사본을 번역했으면 사본 위의 범위다.
@@ -421,28 +521,28 @@
     for (const span of spansInRange(selRange, 'original')) if (swap(span, 'translated')) reshown++;
 
     const { targets, skipped, after } = prepareTargets(selRange, deps);
-    const scope = scopeOf(targets, selRange);
-    const { done, failed, interrupted } = await translateTargets(targets, deps);
+    const jobs = wrapPending(targets, deps.detector);
+    const scope = scopeOf(jobs, selRange);
+    const { translated, failed, rebuilt, done, interrupted } = await fillTranslations(jobs, deps);
     for (const task of after) task();
     return {
-      translated: done - failed + reshown,
+      translated: translated + reshown,
       failed,
+      rebuilt,
       skipped,
-      remaining: targets.length - done,
+      remaining: jobs.length - done,
       interrupted,
       scope,
     };
   }
 
-  // 실제로 번역한 문장들(사본 안일 수 있음)을 감싸는 Range. "다시 시도"에 쓴다.
-  // 살아 있는 Range라 그 안의 문장을 번역해 DOM이 바뀌어도 범위가 따라간다.
-  function scopeOf(targets, fallback) {
-    if (!targets.length) return fallback.cloneRange();
-    const first = targets[0].range;
-    const last = targets[targets.length - 1].range;
-    const scope = first.startContainer.ownerDocument.createRange();
-    scope.setStart(first.startContainer, first.startOffset);
-    scope.setEnd(last.endContainer, last.endOffset);
+  // 번역 대상 문장들(사본 안일 수 있음)을 감싸는 Range. "다시 시도"에 쓴다.
+  // 살아 있는 Range라 문장이 번역되거나 원문으로 되돌려져도 범위가 따라간다.
+  function scopeOf(jobs, fallback) {
+    if (!jobs.length) return fallback.cloneRange();
+    const scope = jobs[0].span.ownerDocument.createRange();
+    scope.setStartBefore(jobs[0].span);
+    scope.setEndAfter(jobs[jobs.length - 1].span);
     return scope;
   }
 
@@ -499,6 +599,7 @@
   TFD.applySentenceStates = applySentenceStates;
   TFD.forgetSentences = forgetSentences;
   TFD.normalizeText = normalize;
+  TFD.plainTextOf = plainTextOf;
   TFD.showOriginalInRange = showOriginalInRange;
   TFD.touchesTranslation = touchesTranslation;
   TFD.showTranslation = showTranslation;

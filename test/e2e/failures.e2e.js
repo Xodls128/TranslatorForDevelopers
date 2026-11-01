@@ -17,9 +17,10 @@ const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'manifest.json'), 'u
 const contentScripts = manifest.content_scripts[0].js;
 
 // create: 'ok' | 'stall'(영원히 대기) | 'slow'(진행률을 조금씩 보내다 완료) | 'not-allowed' | 'none'(API 없음)
-// hang: 이 글자가 든 문장은 번역이 끝나지 않음
+// hang: 이 글자가 든 문장은 번역이 끝나지 않음, slow: 이 글자가 든 문장은 slowMs 뒤에 끝남,
+// drop: 이 글자가 든 문장은 토큰을 빼고 돌려줌 (용어 보호 실패)
 const FAKE_TRANSLATOR = `
-  window.__fake = { create: 'ok', hang: null };
+  window.__fake = { create: 'ok', hang: null, slow: null, slowMs: 500, drop: null };
   window.Translator = {
     availability: async () => 'downloadable',
     create: (options) => {
@@ -29,6 +30,10 @@ const FAKE_TRANSLATOR = `
       const translator = {
         translate: (text) => {
           if (window.__fake.hang && text.includes(window.__fake.hang)) return new Promise(() => {});
+          if (window.__fake.drop && text.includes(window.__fake.drop)) return Promise.resolve('[ko] ' + text.replace(/⟦\\d+⟧/g, ''));
+          if (window.__fake.slow && text.includes(window.__fake.slow)) {
+            return new Promise((resolve) => setTimeout(() => resolve('[ko] ' + text), window.__fake.slowMs));
+          }
           return Promise.resolve('[ko] ' + text);
         },
       };
@@ -243,5 +248,48 @@ test('Translator API가 없으면 업데이트 안내, 다시 시도 버튼 없�
   assert.equal(info.title, '이 브라우저는 내장 번역을 지원하지 않습니다');
   assert.equal(info.copy, 'chrome://settings/help');
   assert.equal(info.retry, false);
+  await page.close();
+});
+
+test('하나씩 표시: 끝난 문장은 바로 번역문, 남은 문장은 "번역 중"으로 보인다', async () => {
+  const page = await openPage({ sentenceMs: 5000 });
+  await page.evaluate(() => (window.__fake.slow = 'It returns'));
+  await select(page, '#p1', 'can call', 'It returns');
+  await page.locator('#tfd-ui-host .button').click();
+  await page.waitForTimeout(150);
+  assert.deepEqual(await states(page, '#p1'), ['translated', 'pending']);
+  // 번역 중인 문장도 원문 글자가 그대로 보인다.
+  assert.equal(await page.$eval('#p1 .tfd-sentence[data-tfd-state="pending"]', (el) => el.textContent), 'It returns a Promise object.');
+  await page.waitForTimeout(600);
+  assert.deepEqual(await states(page, '#p1'), ['translated', 'translated']);
+  await page.close();
+});
+
+test('하나씩 표시: 도중에 취소하면 끝난 문장은 남고, 대기 중이던 문장은 원래대로 돌아온다', async () => {
+  const page = await openPage({ sentenceMs: 60000 });
+  const before = await page.$eval('#p1', (el) => el.textContent);
+  await page.evaluate(() => (window.__fake.hang = 'It returns'));
+  await select(page, '#p1', 'can call', 'It returns');
+  await page.locator('#tfd-ui-host .button').click();
+  await page.waitForTimeout(100);
+  await page.locator('#tfd-ui-host .cancel').click();
+  await page.waitForTimeout(100);
+  assert.deepEqual(await states(page, '#p1'), ['translated']);
+  assert.equal(await page.$$eval('[data-tfd-state="pending"]', (els) => els.length), 0);
+  // 되돌린 문장은 원래 글자 그대로 (번역된 첫 문장을 원문으로 돌리면 전체가 원래와 같다)
+  await select(page, '#p1', '[ko]', 'can call');
+  assert.equal(await page.$eval('#p1', (el) => el.textContent), before);
+  await page.close();
+});
+
+test('하나씩 표시: 토큰이 깨진 문장만 원래대로 돌아오고 안내 카드가 뜬다', async () => {
+  const page = await openPage();
+  await page.evaluate(() => (window.__fake.drop = 'It returns'));
+  await select(page, '#p1', 'can call', 'It returns');
+  await page.locator('#tfd-ui-host .button').click();
+  await waitForCard(page);
+  assert.equal((await card(page)).title, '1문장은 개발 용어 보호 처리에 실패해 원문으로 두었습니다');
+  assert.deepEqual(await states(page, '#p1'), ['translated']);
+  assert.equal(await page.$$eval('[data-tfd-state="pending"]', (els) => els.length), 0);
   await page.close();
 });

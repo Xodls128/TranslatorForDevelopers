@@ -144,6 +144,22 @@
     return { copy: mirror.copy, carried };
   }
 
+  /**
+   * 우리가 하는 DOM 작업(사본 안 문장 감싸기·채우기 등)은 감시 기록에서 뺀다.
+   * fn은 동기로 실행되므로 그동안 페이지가 DOM을 바꿀 수 없다. 작업 전에 쌓인 페이지 변화는 그대로 처리한다.
+   * (빼지 않으면 문장마다 감시가 깨어나 모든 사본을 검사해서, 문장이 많을 때 크게 느려진다)
+   */
+  function quietly(fn) {
+    if (!observer) return fn();
+    const pending = observer.takeRecords();
+    try {
+      return fn();
+    } finally {
+      observer.takeRecords();
+      if (pending.length) onMutations(pending);
+    }
+  }
+
   function startObserving() {
     if (observer) return;
     observer = new MutationObserver(onMutations);
@@ -191,7 +207,7 @@
    * 전에 번역했던 문장과 글자가 같은 문장, 그리고 글자가 바뀌었지만 단어가 절반 이상 겹치는 문장.
    */
   function pickTargets(candidates, previousTexts) {
-    const plain = candidates.map((c) => TFD.normalizeText(c.range.toString()));
+    const plain = candidates.map(TFD.plainTextOf);
     const selected = new Set();
     plain.forEach((text, i) => {
       if (previousTexts.includes(text)) selected.add(i);
@@ -320,4 +336,5 @@
   TFD.pickTargets = pickTargets;
   TFD.forwardClick = forwardClick;
   TFD.peekOriginals = peekOriginals;
+  TFD.quietly = quietly;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

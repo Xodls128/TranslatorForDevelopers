@@ -134,20 +134,34 @@
     return Array.prototype.indexOf.call(node.parentNode.childNodes, node);
   }
 
+  /** 글자 위치의 시작 경계 [노드, 오프셋] (글자가 요소면 그 요소의 앞) */
+  function startPoint(pos) {
+    return pos.el ? [pos.el.parentNode, childIndex(pos.el)] : [pos.node, pos.offset];
+  }
+
+  /** 글자 위치의 끝 경계 [노드, 오프셋] (글자가 요소면 그 요소의 뒤) */
+  function endPoint(pos) {
+    return pos.el ? [pos.el.parentNode, childIndex(pos.el) + 1] : [pos.node, pos.offset + 1];
+  }
+
+  /** 이미 있는 Range를 run의 [start, end) 구간으로 맞춘다. (Range를 새로 만들지 않고 재사용할 때) */
+  function setRangeForRun(range, run, start, end) {
+    range.setStart(...startPoint(run.positions[start]));
+    range.setEnd(...endPoint(run.positions[end - 1]));
+    return range;
+  }
+
   /** run의 [start, end) 구간에 해당하는 DOM Range */
   function rangeForRun(run, start, end) {
     const first = run.positions[start];
-    const last = run.positions[end - 1];
-    const range = (first.node || first.el).ownerDocument.createRange();
-    if (first.el) range.setStart(first.el.parentNode, childIndex(first.el));
-    else range.setStart(first.node, first.offset);
-    if (last.el) range.setEnd(last.el.parentNode, childIndex(last.el) + 1);
-    else range.setEnd(last.node, last.offset + 1);
-    return range;
+    return setRangeForRun((first.node || first.el).ownerDocument.createRange(), run, start, end);
   }
 
   TFD.UI_HOST_ID = UI_HOST_ID;
   TFD.classifyElement = classify;
   TFD.buildRuns = buildRuns;
   TFD.rangeForRun = rangeForRun;
+  TFD.setRangeForRun = setRangeForRun;
+  TFD.startPoint = startPoint;
+  TFD.endPoint = endPoint;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

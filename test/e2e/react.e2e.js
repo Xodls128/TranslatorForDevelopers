@@ -20,7 +20,10 @@ const contentScripts = manifest.content_scripts[0].js;
 const FAKE_TRANSLATOR = `
   window.Translator = {
     availability: async () => 'available',
-    create: async () => ({ translate: async (text) => '[ko] ' + text }),
+    // window.__slowMs가 있으면 그만큼 늦게 끝난다. (번역 도중 페이지가 바뀌는 상황을 만들 때)
+    create: async () => ({
+      translate: (text) => new Promise((resolve) => setTimeout(() => resolve('[ko] ' + text), window.__slowMs || 0)),
+    }),
   };
 `;
 
@@ -257,5 +260,30 @@ test('숨김 보강: 사이트 CSS가 display를 강제해도 원본은 숨겨�
   await translate(page, '#r-text');
   const visibility = await page.evaluate(() => [...document.querySelectorAll('#r-text')].map((el) => el.checkVisibility()));
   assert.deepEqual(visibility, [true, false]);
+  await page.close();
+});
+
+test('번역 도중 페이지가 문단을 바꾸면 새 사본에서 다시 번역하고, 알림도 그에 맞게 나온다', async () => {
+  const { page, errors } = await openPage();
+  await page.evaluate(() => (window.__slowMs = 300));
+  // 번역 버튼을 누르고, 첫 문장을 번역하는 동안(0.3초) React가 문단을 바꾼다.
+  await page.evaluate(() => {
+    const el = document.querySelector('#r-text');
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    getSelection().removeAllRanges();
+    getSelection().addRange(range);
+    el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 10, clientY: 10 }));
+    el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: 200, clientY: 10 }));
+  });
+  await page.waitForTimeout(50);
+  await page.locator('#tfd-ui-host .button').click();
+  await page.waitForTimeout(100);
+  await page.click('#btn-count');
+  await page.waitForTimeout(1200);
+  assert.equal(await visibleText(page, '#r-text'), '[ko] The counter is 1 right now. [ko] It updates on click.');
+  const toast = await page.evaluate(() => document.getElementById('tfd-ui-host').shadowRoot.querySelector('.toast .message').textContent);
+  assert.equal(toast, '번역하는 동안 페이지 내용이 바뀌어, 바뀐 문단을 새로 번역했습니다.');
+  assert.deepEqual(errors, []);
   await page.close();
 });
