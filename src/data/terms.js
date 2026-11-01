@@ -70,10 +70,53 @@
     'components', 'directive', 'syntax', 'API', 'APIs', 'implementation', 'definition',
   ];
 
+  /*
+   * 분야 묶음: 그 분야 문서에서만 개발 용어로 쓰이는 단어. 사이트(src/data/sites.js)나 옵션에 따라 켠다.
+   * 켜진 묶음에 있는 단어는 기본 사전의 규칙보다 우선한다. (예: fork는 기본 사전에서는 다의어, 시스템 묶음에서는 항상 보존)
+   * 실제 번역기에서 확인하기 전의 초기 선별본이다.
+   */
+  const TERM_PACKS = {
+    web: [
+      ['hydrate', 'word'], ['hydration', 'word'], ['render', 'word'], ['rerender', 'word'], ['mount', 'word'],
+      ['unmount', 'word'], ['fallback', 'word'], ['bundle', 'word'], ['Suspense', 'exact'],
+      ['service worker', 'word'], ['shadow DOM', 'word'], ['viewport', 'word'], ['reflow', 'word'],
+      ['repaint', 'word'], ['hook', 'word'], ['state', 'context'], ['effect', 'context'],
+    ],
+    backend: [
+      ['bean', 'word'], ['pod', 'word'], ['ingress', 'word'], ['egress', 'word'], ['sidecar', 'word'],
+      ['replica', 'word'], ['shard', 'word'], ['sharding', 'word'], ['idempotent', 'word'],
+      ['rollout', 'word'], ['load balancer', 'word'], ['health check', 'word'], ['DaemonSet', 'exact'],
+      ['StatefulSet', 'exact'], ['ConfigMap', 'exact'], ['Deployment', 'context'], ['Service', 'context'],
+    ],
+    systems: [
+      ['kernel', 'word'], ['syscall', 'word'], ['system call', 'word'], ['inode', 'word'], ['spinlock', 'word'],
+      ['page fault', 'word'], ['page table', 'word'], ['mmap', 'word'], ['ioctl', 'word'], ['kmalloc', 'word'],
+      ['kfree', 'word'], ['vmalloc', 'word'], ['printk', 'word'], ['softirq', 'word'], ['tasklet', 'word'],
+      ['interrupt handler', 'word'], ['user space', 'word'], ['userspace', 'word'], ['kernel space', 'word'],
+      ['fork', 'word'], ['pipe', 'word'], ['borrow checker', 'word'], ['unsafe', 'word'],
+    ],
+    embedded: [
+      ['register', 'word'], ['interrupt', 'word'], ['peripheral', 'word'], ['firmware', 'word'],
+      ['bootloader', 'word'], ['watchdog', 'word'], ['prescaler', 'word'], ['bit-banging', 'word'],
+      ['flash', 'word'], ['pull-up', 'word'], ['pull-down', 'word'], ['open-drain', 'word'],
+      ['push-pull', 'word'], ['baud rate', 'word'], ['duty cycle', 'word'], ['brownout', 'word'],
+      ['deep sleep', 'word'], ['light sleep', 'word'],
+    ],
+  };
+
+  const TERM_PACK_LABELS = {
+    web: '웹',
+    backend: '백엔드·인프라',
+    systems: '시스템',
+    embedded: '임베디드·하드웨어',
+  };
+
   TFD.DEFAULT_TERMS = DEFAULT_TERMS;
   TFD.CONTEXT_CUES = CONTEXT_CUES;
+  TFD.TERM_PACKS = TERM_PACKS;
+  TFD.TERM_PACK_LABELS = TERM_PACK_LABELS;
 
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { DEFAULT_TERMS, CONTEXT_CUES };
+    module.exports = { DEFAULT_TERMS, CONTEXT_CUES, TERM_PACKS, TERM_PACK_LABELS };
   }
 })(typeof globalThis !== 'undefined' ? globalThis : this);

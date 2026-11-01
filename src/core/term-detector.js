@@ -128,16 +128,26 @@
    * @param {string[]} [options.cues] context 용어 단서 단어 (기본값: TFD.CONTEXT_CUES)
    * @param {string[]} [options.extraTerms] 사용자가 추가한 보존 용어
    * @param {string[]} [options.excludedTerms] 사용자가 보존에서 제외한 용어
+   * @param {string[]} [options.packs] 켤 분야 묶음 이름 (TFD.TERM_PACKS의 키). 같은 단어는 묶음 규칙이 우선
+   * @param {Object<string, Array<[string, string]>>} [options.termPacks] 분야 묶음 (기본값: TFD.TERM_PACKS)
    */
   function createTermDetector(options = {}) {
     const terms = options.terms || TFD.DEFAULT_TERMS || [];
     const cues = options.cues || TFD.CONTEXT_CUES || [];
+    const termPacks = options.termPacks || TFD.TERM_PACKS || {};
     const excluded = new Set((options.excludedTerms || []).map((t) => t.trim().toLowerCase()).filter(Boolean));
     const cuePattern = '(?:' + cues.map(escapeRegExp).join('|') + ')';
 
+    // 기본 사전 위에 켜진 묶음을 덮어쓴다. (소문자 기준으로 같은 단어면 묶음 규칙으로 바꿈)
+    const merged = new Map();
+    for (const [term, mode] of terms) merged.set(term.toLowerCase(), [term, mode]);
+    for (const name of options.packs || []) {
+      for (const [term, mode] of termPacks[name] || []) merged.set(term.toLowerCase(), [term, mode]);
+    }
+
     const entries = [];
-    for (const [term, mode] of terms) {
-      if (!excluded.has(term.toLowerCase())) entries.push(compileEntry(term, mode, cuePattern));
+    for (const [key, [term, mode]] of merged) {
+      if (!excluded.has(key)) entries.push(compileEntry(term, mode, cuePattern));
     }
     for (const raw of options.extraTerms || []) {
       const term = raw.trim();

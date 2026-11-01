@@ -12,6 +12,7 @@
       "run_at": "document_idle",
       "js": [
         "src/data/terms.js",
+        "src/data/sites.js",
         "src/core/sentence-splitter.js",
         "src/core/term-detector.js",
         "src/core/protector.js",

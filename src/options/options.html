@@ -16,6 +16,14 @@
     .row { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
     .row button { margin-top: 0; }
     #usage { color: #666; font-size: 13px; }
+    fieldset { margin: 16px 0 0; padding: 0; border: 0; }
+    legend { font-weight: 600; padding: 0; }
+    .sub { margin-top: 10px; font-weight: 600; font-size: 13px; }
+    .sub small { display: inline; margin-left: 4px; }
+    .checks { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 4px; }
+    .checks label { margin: 0; font-weight: 400; }
+    .checks input { margin: 0 6px 0 0; vertical-align: middle; }
+    fieldset label.check { margin-top: 8px; }
   </style>
 </head>
 <body>
@@ -38,6 +46,17 @@
     <option value="duckduckgo">DuckDuckGo</option>
   </select>
 
+  <fieldset id="packs">
+    <legend>분야 용어 묶음
+      <small>그 분야 문서에서만 개발 용어로 쓰이는 단어(예: 임베디드의 register, 시스템의 kmalloc)를 영어로 보존합니다.</small>
+    </legend>
+    <label for="packsAuto" class="check"><input type="checkbox" id="packsAuto"> 사이트에 맞춰 자동으로 켜기
+      <small>react.dev, docs.kernel.org, docs.espressif.com 같은 공식 문서에서 맞는 묶음을 켭니다.</small>
+    </label>
+    <div class="sub">항상 켤 묶음 <small>목록에 없는 사이트에서도 쓰려면 고르세요.</small></div>
+    <div id="packsAlways" class="checks"></div>
+  </fieldset>
+
   <label for="saveTranslations" class="check">
     <input type="checkbox" id="saveTranslations"> 번역 결과를 이 기기에 저장
     <small>같은 문장은 다시 번역하지 않아 바로 보입니다. 저장된 번역은 이 브라우저의 확장 전용 공간에만 있고, 웹사이트나 외부로 전송되지 않습니다.</small>
@@ -51,6 +70,7 @@
     <button id="save" type="button">저장</button><span id="status" role="status"></span>
   </div>
 
+  <script src="../data/terms.js"></script>
   <script src="../core/translation-store.js"></script>
   <script src="options.js"></script>
 </body>

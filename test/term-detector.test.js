@@ -115,3 +115,21 @@ test('로우레벨: 하이픈 일반 표현은 부품명으로 보지 않음', (
 test('로우레벨: 오류 코드는 앞의 - 까지', () => {
   assert.deepEqual(found('The return value is -EINVAL if the argument is invalid.'), ['code:-EINVAL']);
 });
+
+test('분야 묶음: 꺼져 있으면 일반 단어, 켜면 보존', () => {
+  const sentence = 'Write the register and call kmalloc first.';
+  assert.deepEqual(found(sentence), []);
+  assert.deepEqual(found(sentence, createTermDetector({ packs: ['embedded'] })), ['term:register']);
+  assert.deepEqual(found(sentence, createTermDetector({ packs: ['embedded', 'systems'] })), ['term:register', 'term:kmalloc']);
+});
+
+test('분야 묶음: 같은 단어는 켜진 묶음 규칙이 기본 사전보다 우선', () => {
+  // 기본 사전의 fork는 다의어라 소문자 일반 문장에서는 번역, 시스템 묶음에서는 항상 보존
+  assert.deepEqual(found('Processes fork a child.'), []);
+  assert.deepEqual(found('Processes fork a child.', createTermDetector({ packs: ['systems'] })), ['term:fork']);
+});
+
+test('분야 묶음: 사용자 제외 용어가 묶음보다 우선, 없는 묶음 이름은 무시', () => {
+  const d = createTermDetector({ packs: ['embedded', 'nope'], excludedTerms: ['register'] });
+  assert.deepEqual(found('Set the register and the watchdog.', d), ['term:watchdog']);
+});

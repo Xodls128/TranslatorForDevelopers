@@ -13,8 +13,17 @@
   if (!TFD || TFD.started) return;
   TFD.started = true;
 
-  const settings = { extraTerms: [], excludedTerms: [], searchEngine: 'google', saveTranslations: true };
-  let detector = TFD.createTermDetector();
+  const settings = {
+    extraTerms: [],
+    excludedTerms: [],
+    searchEngine: 'google',
+    saveTranslations: true,
+    packsAuto: true, // 사이트에 맞춰 분야 묶음 켜기 (src/data/sites.js)
+    packsAlways: [], // 모든 사이트에서 켤 분야 묶음
+  };
+  // 이 페이지 주소에 맞는 분야 묶음과 검색 맥락
+  const currentSite = () => TFD.resolveSite(location.hostname, location.pathname);
+  let detector = buildDetector();
   // 번역 결과 기기 저장소. 확장 전용 공간(chrome.storage.local)이라 웹사이트는 읽을 수 없다.
   const hasChromeStorage = typeof chrome !== 'undefined' && !!chrome.storage;
   const store = TFD.createTranslationStore({
@@ -31,9 +40,15 @@
 
   const ui = TFD.createUI({ onTranslate: handleTranslate });
 
+  function buildDetector() {
+    const packs = new Set(settings.packsAlways);
+    if (settings.packsAuto) for (const name of currentSite().packs) packs.add(name);
+    return TFD.createTermDetector({ extraTerms: settings.extraTerms, excludedTerms: settings.excludedTerms, packs: [...packs] });
+  }
+
   function applySettings(values) {
     Object.assign(settings, values);
-    detector = TFD.createTermDetector({ extraTerms: settings.extraTerms, excludedTerms: settings.excludedTerms });
+    detector = buildDetector();
   }
 
   if (hasChromeStorage && chrome.storage.sync) {
@@ -189,7 +204,7 @@
     if (term) {
       e.preventDefault();
       e.stopPropagation();
-      const query = TFD.buildSearchQuery(term.dataset.term || term.textContent);
+      const query = TFD.buildSearchQuery(term.dataset.term || term.textContent, { topic: currentSite().topic });
       window.open(TFD.buildSearchUrl(query, settings.searchEngine), '_blank', 'noopener');
       return;
     }
