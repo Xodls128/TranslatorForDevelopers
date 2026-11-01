@@ -172,17 +172,37 @@ test('inline-block 배지는 통째로 보존', async () => {
   assert.equal(await page.$eval('#p1 .tfd-sentence .badge', (el) => el.textContent), 'new');
 });
 
-test('제목형 문장은 다의어 용어도 보존, 용어 클릭 시 검색 페이지 열기', async () => {
-  await select('#title', 'Structures', 'Unions');
+test('용어 클릭 시 검색 페이지 열기', async () => {
+  await select('#term-p', 'Return', 'handler');
   await clickTranslate();
-  const terms = await page.$$eval('#title .tfd-term', (els) => els.map((el) => el.dataset.term));
-  assert.deepEqual(terms, ['structure', 'union']);
+  const terms = await page.$$eval('#term-p .tfd-term', (els) => els.map((el) => el.dataset.term));
+  assert.deepEqual(terms, ['promise']);
 
-  await page.locator('#title .tfd-term').nth(1).click();
+  await page.locator('#term-p .tfd-term').click();
   const opened = await page.evaluate(() => window.__opened);
-  assert.deepEqual(opened, ['https://www.google.com/search?q=' + encodeURIComponent('프로그래밍언어 union')]);
+  assert.deepEqual(opened, ['https://www.google.com/search?q=' + encodeURIComponent('프로그래밍언어 promise')]);
   // 용어 클릭은 문장 전환을 일으키지 않는다.
-  assert.deepEqual(await states('#title'), ['translated']);
+  assert.deepEqual(await states('#term-p'), ['translated']);
+});
+
+test('제목: 섹션 전체를 드래그해도 제목은 영어 그대로, 본문만 번역', async () => {
+  await select('#sec', 'Set', 'first');
+  await clickTranslate();
+  assert.equal(await page.$eval('#sec-h', (el) => el.outerHTML), '<h3 id="sec-h">Set Up Your Project</h3>');
+  assert.equal(await page.$$eval('#sec h3', (els) => els.length), 1); // 제목 사본을 만들지 않음
+  assert.deepEqual(await texts('#sec-p'), ['[ko] Install the tools first.']);
+});
+
+test('제목: 제목만 드래그하면 번역 버튼 대신 안내', async () => {
+  for (const [selector, from, to] of [['#title', 'Structures', 'Unions'], ['#aria-h', 'Commit', 'Changes']]) {
+    await select(selector, from, to);
+    const ui = await page.evaluate(() => {
+      const root = document.getElementById('tfd-ui-host').shadowRoot;
+      return { button: root.querySelector('.button').hidden, toast: root.querySelector('.toast .message').textContent };
+    });
+    assert.deepEqual(ui, { button: true, toast: '제목은 번역하지 않습니다.' });
+    assert.equal(await page.$$eval(`${selector} .tfd-sentence`, (els) => els.length), 0);
+  }
 });
 
 test('약어 e.g. 에서 문장을 끊지 않는다', async () => {

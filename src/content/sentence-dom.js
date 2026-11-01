@@ -59,6 +59,7 @@
    */
   function collectSentences(selRange, rootEl = findBlockAncestor(selRange.commonAncestorContainer)) {
     const targets = [];
+    if (TFD.inHeading(rootEl)) return targets; // 제목은 번역하지 않는다.
     const range = scratchRange(rootEl.ownerDocument);
     for (const run of TFD.buildRuns(rootEl)) {
       for (const sentence of TFD.splitSentences(run.text)) {

@@ -87,6 +87,11 @@
         ui.hideButton();
         return;
       }
+      if (TFD.inHeading(range.commonAncestorContainer)) {
+        if (dragged && !busy) ui.showToast('제목은 번역하지 않습니다.', { duration: 2000 });
+        ui.hideButton();
+        return;
+      }
       if (busy || !/[A-Za-z]/.test(sel.toString())) {
         ui.hideButton();
         return;

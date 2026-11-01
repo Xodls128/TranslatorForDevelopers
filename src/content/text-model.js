@@ -31,6 +31,19 @@
     'summary', 'form', 'fieldset', 'legend', 'hr', 'address',
   ]);
 
+  // 제목은 짧고 맥락이 없어 번역 품질이 낮고, 대부분 용어 위주라 영어로 둔다.
+  const HEADING_SELECTOR = 'h1, h2, h3, h4, h5, h6, [role="heading"]';
+
+  function isHeading(el) {
+    return el.matches(HEADING_SELECTOR);
+  }
+
+  /** node가 제목 요소 안에 있는지 */
+  function inHeading(node) {
+    const el = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+    return !!el && !!el.closest(HEADING_SELECTOR);
+  }
+
   function isNoTranslate(el) {
     return el.getAttribute('translate') === 'no' || el.classList.contains('notranslate');
   }
@@ -43,7 +56,7 @@
     const name = el.localName;
     // 사본을 만들어 숨긴 원본 문단(mirror.js)은 화면에 없는 것으로 본다.
     if (SKIP_TAGS.has(name) || el.id === UI_HOST_ID || el.hasAttribute('data-tfd-hidden')) return 'skip';
-    if (name === 'pre' || el.classList.contains('tfd-sentence')) return 'opaque';
+    if (name === 'pre' || el.classList.contains('tfd-sentence') || isHeading(el)) return 'opaque';
 
     const view = el.ownerDocument && el.ownerDocument.defaultView;
     const display = view && view.getComputedStyle ? view.getComputedStyle(el).display : '';
@@ -159,6 +172,7 @@
 
   TFD.UI_HOST_ID = UI_HOST_ID;
   TFD.classifyElement = classify;
+  TFD.inHeading = inHeading;
   TFD.buildRuns = buildRuns;
   TFD.rangeForRun = rangeForRun;
   TFD.setRangeForRun = setRangeForRun;
