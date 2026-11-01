@@ -13,8 +13,14 @@
   if (!TFD || TFD.started) return;
   TFD.started = true;
 
-  const settings = { extraTerms: [], excludedTerms: [], searchEngine: 'google' };
+  const settings = { extraTerms: [], excludedTerms: [], searchEngine: 'google', saveTranslations: true };
   let detector = TFD.createTermDetector();
+  // 번역 결과 기기 저장소. 확장 전용 공간(chrome.storage.local)이라 웹사이트는 읽을 수 없다.
+  const hasChromeStorage = typeof chrome !== 'undefined' && !!chrome.storage;
+  const store = TFD.createTranslationStore({
+    storage: hasChromeStorage ? chrome.storage.local : null,
+    enabled: () => settings.saveTranslations,
+  });
   // 이만큼 이상 끌어야 드래그로 본다. (클릭 중 손떨림으로 원문 전환되는 것을 막음)
   const DRAG_THRESHOLD_PX = 5;
 
@@ -30,7 +36,7 @@
     detector = TFD.createTermDetector({ extraTerms: settings.extraTerms, excludedTerms: settings.excludedTerms });
   }
 
-  if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.sync) {
+  if (hasChromeStorage && chrome.storage.sync) {
     chrome.storage.sync.get(settings).then(applySettings).catch(() => {});
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== 'sync') return;
@@ -153,6 +159,7 @@
         // 페이지가 원본 문단을 바꿔 사본을 다시 번역할 때 쓴다. 이번 작업의 취소와는 무관하다.
         backgroundTranslate: (text) => TFD.translateText(translator, text),
         detector,
+        store,
       });
       window.getSelection().removeAllRanges();
       // 원본 문단 대신 사본을 번역했을 수 있으므로, 다시 시도할 범위는 실제로 번역한 범위로 바꾼다.
@@ -236,4 +243,8 @@
   // 다른 창으로 가면 keyup이 오지 않으므로 여기서 끝낸다.
   window.addEventListener('blur', cancelPeek);
   window.addEventListener('scroll', () => ui.hideButton(), { passive: true, capture: true });
+  // 탭을 닫거나 다른 탭으로 갈 때 모아 둔 번역을 바로 기록한다.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') store.flush();
+  });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

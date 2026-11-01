@@ -244,6 +244,7 @@
     const deps = {
       translate: mirror.deps.backgroundTranslate || mirror.deps.translate,
       detector: mirror.deps.detector,
+      store: mirror.deps.store,
     };
     // 다시 번역하는 동안 원본이 또 바뀌면 이번 결과는 버린다.
     await TFD.translateTargets(targets, deps, () => mirror.version === version && copy.isConnected);

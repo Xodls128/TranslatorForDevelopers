@@ -17,6 +17,7 @@
         "src/core/protector.js",
         "src/core/search-query.js",
         "src/core/error-messages.js",
+        "src/core/translation-store.js",
         "src/content/text-model.js",
         "src/content/sentence-dom.js",
         "src/content/mirror.js",

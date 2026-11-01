@@ -11,6 +11,11 @@
     select { margin-top: 4px; }
     button { margin-top: 16px; padding: 6px 14px; }
     #status { margin-left: 8px; color: #1a7f37; }
+    label.check { display: block; }
+    label.check input { margin: 0 6px 0 0; vertical-align: middle; }
+    .row { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+    .row button { margin-top: 0; }
+    #usage { color: #666; font-size: 13px; }
   </style>
 </head>
 <body>
@@ -33,10 +38,20 @@
     <option value="duckduckgo">DuckDuckGo</option>
   </select>
 
+  <label for="saveTranslations" class="check">
+    <input type="checkbox" id="saveTranslations"> 번역 결과를 이 기기에 저장
+    <small>같은 문장은 다시 번역하지 않아 바로 보입니다. 저장된 번역은 이 브라우저의 확장 전용 공간에만 있고, 웹사이트나 외부로 전송되지 않습니다.</small>
+  </label>
+  <div class="row">
+    <button id="clearTranslations" type="button">저장된 번역 지우기</button>
+    <span id="usage" role="status"></span>
+  </div>
+
   <div>
     <button id="save" type="button">저장</button><span id="status" role="status"></span>
   </div>
 
+  <script src="../core/translation-store.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

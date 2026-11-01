@@ -169,13 +169,40 @@
     return !!err && (err.code === 'sentence-timeout' || err.code === 'cancelled');
   }
 
+  /*
+   * 번역 결과 찾기: ① 메모리(이 탭) → ② 기기 저장소(deps.store, 껐다 켜도 남음) → ③ 번역기
+   * 번역기로 새로 번역한 결과는 화면에 반영할 수 있을 때(토큰 복원 성공)만 기기 저장소에 기록한다.
+   */
+  const fresh = new Set(); // 번역기로 새로 번역했지만 아직 기기에 기록하지 않은 입력
+
   async function translateCached(source, deps) {
     let translated = cache.get(source);
-    if (translated === undefined) {
-      translated = (await deps.translate(source)).trim();
-      cache.set(source, translated);
+    if (translated !== undefined) return translated;
+    if (deps.store) {
+      translated = (await deps.store.getMany([source])).get(source);
+      if (translated !== undefined) {
+        cache.set(source, translated);
+        return translated;
+      }
     }
+    translated = (await deps.translate(source)).trim();
+    cache.set(source, translated);
+    fresh.add(source);
     return translated;
+  }
+
+  // 토큰 복원까지 성공한 번역만 기기에 기록한다. (실패한 결과는 다시 시도해도 같아서 저장할 가치가 없음)
+  function remember(source, deps) {
+    if (!fresh.has(source)) return;
+    fresh.delete(source);
+    if (deps.store) deps.store.put(source, cache.get(source));
+  }
+
+  // 번역 전에 대상 문장들을 기기 저장소에서 한 번에 찾아 메모리에 올려 둔다. (문장마다 따로 조회하지 않도록)
+  async function prefetch(jobs, deps) {
+    if (!deps.store) return;
+    const missing = jobs.map((job) => job.source).filter((source) => !cache.has(source));
+    for (const [source, translated] of await deps.store.getMany(missing)) cache.set(source, translated);
   }
 
   /** @returns {Promise<Map<object, {text: string, original: string, long: boolean}>>} 링크 항목 → 번역된 글자 */
@@ -196,6 +223,7 @@
       }
       const restored = TFD.restoreSentence(output, inner);
       if (!restored.ok) continue;
+      remember(source, deps);
       let text = restored.parts.map((p) => (p.type === 'text' ? p.text : p.item.text)).join('').trim();
       // 명사구에 번역기가 붙인 마침표는 뗀다.
       if (!/[.!?]$/.test(original)) text = text.replace(/[.!?。]+$/, '');
@@ -486,6 +514,7 @@
       const restored = TFD.restoreSentence(output, job.items, displayText);
       if (restored.ok) {
         fillTranslation(job, restored.parts);
+        remember(job.source, deps);
         translated++;
       } else {
         failed++;
@@ -502,13 +531,16 @@
   /** 사본을 다시 만들 때 쓰는 번역: 감싸고 채운다. */
   async function translateTargets(targets, deps, isValid = () => true) {
     if (!isValid()) return { translated: 0, failed: 0, rebuilt: 0, done: 0, interrupted: null };
-    return fillTranslations(wrapPending(targets, deps.detector), deps, isValid);
+    const jobs = wrapPending(targets, deps.detector);
+    await prefetch(jobs, deps);
+    return fillTranslations(jobs, deps, isValid);
   }
 
   /**
    * @param {Range} selRange 사용자가 드래그한 영역
-   * @param {{translate: (s: string) => Promise<string>, backgroundTranslate?: (s: string) => Promise<string>, detector: object}} deps
+   * @param {{translate: (s: string) => Promise<string>, backgroundTranslate?: (s: string) => Promise<string>, detector: object, store?: object}} deps
    *   backgroundTranslate: 페이지가 원본을 바꿔 사본을 다시 번역할 때 쓰는 번역 함수 (사용자 취소와 무관)
+   *   store: 번역 결과 기기 저장소 (translation-store.js). 없으면 메모리에만 둔다.
    * @returns {Promise<{translated: number, failed: number, rebuilt: number, skipped: number, remaining: number, interrupted: Error|null, scope: Range}>}
    *   rebuilt: 번역 도중 페이지가 문단을 바꿔, 새 사본에서 다시 번역하게 된 문장 수
    *   skipped: 복제할 수 없는 문단(동영상·캔버스·iframe 등)이라 번역하지 않은 문장 수
@@ -523,6 +555,7 @@
     const { targets, skipped, after } = prepareTargets(selRange, deps);
     const jobs = wrapPending(targets, deps.detector);
     const scope = scopeOf(jobs, selRange);
+    await prefetch(jobs, deps);
     const { translated, failed, rebuilt, done, interrupted } = await fillTranslations(jobs, deps);
     for (const task of after) task();
     return {
