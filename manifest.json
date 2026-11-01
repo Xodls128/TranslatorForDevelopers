@@ -23,6 +23,7 @@
         "src/content/sentence-dom.js",
         "src/content/mirror.js",
         "src/content/translator.js",
+        "src/content/korean-edition.js",
         "src/content/ui.js",
         "src/content/main.js"
       ],

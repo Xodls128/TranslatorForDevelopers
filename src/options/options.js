@@ -7,6 +7,7 @@ const DEFAULTS = {
   saveTranslations: true,
   packsAuto: true,
   packsAlways: [],
+  koreanEdition: true,
 };
 
 const fields = {
@@ -15,6 +16,7 @@ const fields = {
   searchEngine: document.getElementById('searchEngine'),
   saveTranslations: document.getElementById('saveTranslations'),
   packsAuto: document.getElementById('packsAuto'),
+  koreanEdition: document.getElementById('koreanEdition'),
 };
 
 // 분야 묶음 체크박스 (src/data/terms.js의 TERM_PACK_LABELS 순서)
@@ -49,6 +51,7 @@ chrome.storage.sync.get(DEFAULTS).then((values) => {
   fields.searchEngine.value = values.searchEngine;
   fields.saveTranslations.checked = values.saveTranslations;
   fields.packsAuto.checked = values.packsAuto;
+  fields.koreanEdition.checked = values.koreanEdition;
   for (const [name, box] of Object.entries(packBoxes)) box.checked = values.packsAlways.includes(name);
 });
 showUsage();
@@ -60,6 +63,7 @@ document.getElementById('save').addEventListener('click', async () => {
     searchEngine: fields.searchEngine.value,
     saveTranslations: fields.saveTranslations.checked,
     packsAuto: fields.packsAuto.checked,
+    koreanEdition: fields.koreanEdition.checked,
     packsAlways: Object.keys(packBoxes).filter((name) => packBoxes[name].checked),
   });
   const status = document.getElementById('status');

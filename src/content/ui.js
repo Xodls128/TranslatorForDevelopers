@@ -29,6 +29,8 @@
     .toast .cancel, .card button {
       font: inherit; cursor: pointer; border-radius: 6px;
     }
+    .toast .message { word-break: keep-all; overflow-wrap: anywhere; }
+    .toast .link { flex: none; color: #8cc4ff; font-weight: 600; text-decoration: underline; white-space: nowrap; }
     .toast .cancel { flex: none; padding: 2px 10px; border: 1px solid rgba(255, 255, 255, .5); background: transparent; color: #fff; }
     .card { padding: 14px 16px; background: #24292f; border-left: 4px solid #f85149; }
     .card.warning { border-left-color: #d29922; }
@@ -63,7 +65,7 @@
     const shadow = host.attachShadow({ mode: 'open' });
     shadow.innerHTML = `<style>${STYLE}</style>
       <button class="button" type="button" hidden>번역</button>
-      <div class="toast" role="status" hidden><span class="message"></span><button class="cancel" type="button" hidden>취소</button></div>
+      <div class="toast" role="status" hidden><span class="message"></span><a class="link" target="_blank" rel="noopener" hidden></a><button class="cancel" type="button" hidden>취소</button></div>
       <div class="card" role="alert" hidden></div>`;
     document.documentElement.appendChild(host);
 
@@ -71,6 +73,7 @@
     const toast = shadow.querySelector('.toast');
     const toastMessage = toast.querySelector('.message');
     const toastCancel = toast.querySelector('.cancel');
+    const toastLink = toast.querySelector('.link');
     const card = shadow.querySelector('.card');
     let toastTimer = null;
     let onToastCancel = null;
@@ -102,11 +105,21 @@
       button.hidden = true;
     }
 
-    /** @param {{type?: 'info'|'error', duration?: number, onCancel?: Function}} [options] duration 0이면 자동으로 닫지 않음 */
-    function showToast(message, { type = 'info', duration = 3000, onCancel = null } = {}) {
+    /**
+     * @param {{type?: 'info'|'error', duration?: number, onCancel?: Function, link?: {label: string, href: string}}} [options]
+     *   duration 0이면 자동으로 닫지 않음. link: 새 탭으로 여는 링크 하나
+     */
+    function showToast(message, { type = 'info', duration = 3000, onCancel = null, link = null } = {}) {
       clearTimeout(toastTimer);
       hideCard();
       toastMessage.textContent = message;
+      toastLink.hidden = !link;
+      if (link) {
+        toastLink.textContent = link.label;
+        toastLink.href = link.href;
+      } else {
+        toastLink.removeAttribute('href');
+      }
       toast.className = `toast ${type === 'error' ? 'error' : ''}`;
       onToastCancel = onCancel;
       toastCancel.hidden = !onCancel;

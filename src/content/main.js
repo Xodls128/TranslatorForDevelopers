@@ -20,6 +20,7 @@
     saveTranslations: true,
     packsAuto: true, // 사이트에 맞춰 분야 묶음 켜기 (src/data/sites.js)
     packsAlways: [], // 모든 사이트에서 켤 분야 묶음
+    koreanEdition: true, // 공식 한국어판이 있으면 첫 번역 결과와 함께 알려 주기
   };
   // 이 페이지 주소에 맞는 분야 묶음과 검색 맥락
   const currentSite = () => TFD.resolveSite(location.hostname, location.pathname);
@@ -146,10 +147,30 @@
     } else if (result.translated === 0) {
       ui.showToast('번역할 영어 문장을 찾지 못했습니다.');
     } else if (result.skipped > 0) {
-      ui.showToast(`${result.translated}문장을 번역했습니다. ${SKIPPED_NOTE(result.skipped)}`, { duration: 5000 });
+      showDone(`${result.translated}문장을 번역했습니다. ${SKIPPED_NOTE(result.skipped)}`, 5000);
     } else {
-      ui.showToast(`${result.translated}문장을 번역했습니다. 번역된 부분을 드래그하면 원문으로 돌아갑니다.`);
+      showDone(`${result.translated}문장을 번역했습니다. 번역된 부분을 드래그하면 원문으로 돌아갑니다.`);
     }
+  }
+
+  // 공식 한국어판 안내: 페이지 주소마다 한 번, 첫 번역 결과와 함께 보여 준다.
+  // (React 등에서 페이지를 새로 불러오지 않고 문서를 옮겨 다녀도 주소가 바뀌면 다시 안내)
+  const koreanEditionShown = new Set();
+  function koreanEditionLink() {
+    if (!settings.koreanEdition) return null;
+    const page = location.href.split('#')[0];
+    if (koreanEditionShown.has(page)) return null;
+    koreanEditionShown.add(page);
+    const href = TFD.findKoreanEdition(document);
+    return href ? { label: '한국어판 열기', href } : null;
+  }
+  const KOREAN_EDITION_NOTE = ' 이 문서는 공식 한국어판이 있습니다. (영어판보다 갱신이 늦을 수 있음)';
+
+  // 번역을 마친 알림. 공식 한국어판이 있으면 링크를 덧붙이고 더 오래 보여 준다.
+  function showDone(message, duration) {
+    const link = koreanEditionLink();
+    if (link) ui.showToast(message + KOREAN_EDITION_NOTE, { duration: 8000, link });
+    else ui.showToast(message, duration ? { duration } : undefined);
   }
 
   const SKIPPED_NOTE = (n) => `${n}문장은 동영상·그림·삽입된 페이지가 있는 문단이라 번역하지 않았습니다.`;
