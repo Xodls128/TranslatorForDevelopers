@@ -1,5 +1,7 @@
 # Translator for Developers
 
+[![test](https://github.com/Xodls128/TranslatorForDevelopers/actions/workflows/test.yml/badge.svg)](https://github.com/Xodls128/TranslatorForDevelopers/actions/workflows/test.yml)
+
 개발 용어와 코드는 영어 그대로 두고, **드래그한 영어 문장만** 한국어로 번역하는 Chrome 확장 프로그램입니다.
 번역은 Chrome 내장 Translator API(기기 내 번역)로 처리하므로 외부 서버, API 키, 비용이 없습니다.
 
@@ -85,9 +87,13 @@ test/
 
 ```bash
 npm test          # 단위 테스트
-npm install       # 처음 한 번: React 재현 테스트용 개발 의존성 (확장 프로그램 자체에는 포함되지 않음)
-npm run test:e2e  # Playwright + Chromium 필요
+npm install       # 처음 한 번: 테스트용 개발 의존성 (Playwright, React. 확장 프로그램 자체에는 포함되지 않음)
+npx playwright install chromium  # 처음 한 번: 브라우저 테스트용 Chromium
+npm run test:e2e  # 브라우저 테스트
+npm run test:e2e:chrome  # 설치된 Google Chrome으로 브라우저 테스트
 ```
+
+push하거나 PR을 열면 GitHub Actions에서 단위 테스트와 브라우저 테스트(Chromium, Chrome)가 자동으로 실행됩니다 (`.github/workflows/test.yml`).
 
 문장을 잘못 자르는 사례를 발견하면 `test/sentence-splitter.test.js`의 `CASES`에 추가하세요.
 

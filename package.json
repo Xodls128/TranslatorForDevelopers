@@ -5,12 +5,14 @@
   "description": "개발 용어와 코드는 영어 그대로 두고, 드래그한 영어 문장만 한국어로 번역하는 Chrome 확장 프로그램",
   "scripts": {
     "test": "node --test test/*.test.js",
-    "test:e2e": "node --test test/e2e/*.e2e.js"
+    "test:e2e": "node --test test/e2e/*.e2e.js",
+    "test:e2e:chrome": "node --env-file=test/e2e/chrome.env --test test/e2e/*.e2e.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "devDependencies": {
+    "playwright": "1.63.0",
     "react": "18.3.1",
     "react-dom": "18.3.1"
   }

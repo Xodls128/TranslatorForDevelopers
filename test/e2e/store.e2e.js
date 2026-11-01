@@ -10,7 +10,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const fs = require('node:fs');
-const { chromium } = require('playwright');
+const { launchBrowser } = require('./browser');
 
 const ROOT = path.resolve(__dirname, '../..');
 const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'manifest.json'), 'utf8'));
@@ -44,7 +44,7 @@ const FAKE_CHROME = `
 let browser;
 
 test.before(async () => {
-  browser = await chromium.launch();
+  browser = await launchBrowser();
 });
 
 test.after(async () => {

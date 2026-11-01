@@ -10,7 +10,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const fs = require('node:fs');
-const { chromium } = require('playwright');
+const { launchBrowser } = require('./browser');
 
 const ROOT = path.resolve(__dirname, '../..');
 const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'manifest.json'), 'utf8'));
@@ -95,7 +95,7 @@ const states = (selector) => page.$$eval(`${selector} .tfd-sentence`, (els) => e
 const texts = (selector) => page.$$eval(`${selector} .tfd-sentence`, (els) => els.map((el) => el.textContent));
 
 test.before(async () => {
-  browser = await chromium.launch();
+  browser = await launchBrowser();
   page = await browser.newPage();
   await page.addInitScript(FAKE_TRANSLATOR);
   await page.goto('file://' + path.join(__dirname, 'fixture.html'));

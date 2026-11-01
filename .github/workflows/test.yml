@@ -1,0 +1,69 @@
+name: test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 같은 브랜치에 새로 push하면 이전 실행은 취소한다.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: 단위 테스트
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  e2e:
+    name: 브라우저 테스트 (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        # chromium: Playwright가 내려받는 Chromium, chrome: 실행 환경에 미리 설치된 Google Chrome
+        browser: [chromium, chrome]
+    env:
+      TFD_BROWSER: ${{ matrix.browser }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Playwright 버전 확인
+        if: matrix.browser == 'chromium'
+        id: pw
+        run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+      # Chromium(약 400MB)은 Playwright 버전이 같으면 캐시에서 꺼낸다.
+      - name: Chromium 캐시
+        if: matrix.browser == 'chromium'
+        id: pw-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
+      - name: Chromium 설치
+        if: matrix.browser == 'chromium' && steps.pw-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+      - name: Chromium 실행에 필요한 시스템 패키지 설치
+        if: matrix.browser == 'chromium' && steps.pw-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+      - name: Chrome 버전 확인
+        if: matrix.browser == 'chrome'
+        run: google-chrome --version
+      - run: npm run test:e2e
