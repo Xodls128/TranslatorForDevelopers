@@ -12,6 +12,16 @@
   const NOT_WORD_BEFORE = '(?<![A-Za-z0-9_$])';
   const NOT_WORD_AFTER = '(?![A-Za-z0-9_$])';
 
+  // 숫자 뒤에 붙는 단위 기호. 긴 것을 먼저 둔다.
+  const UNITS = [
+    'KiB', 'MiB', 'GiB', 'kbps', 'Mbps', 'Gbps', 'bps', 'baud', 'dBm', 'dB', 'ppm', 'rpm',
+    'kHz', 'MHz', 'GHz', 'Hz', 'kΩ', 'MΩ', 'Ω', 'ohms', 'ohm', '°C', '°F',
+    'mV', 'kV', 'µV', 'uV', 'mA', 'µA', 'uA', 'nA', 'mW', 'kW', 'µF', 'uF', 'nF', 'pF', 'mH', 'µH',
+    'ms', 'µs', 'us', 'ns', 'ps', 'KB', 'kB', 'MB', 'GB', 'TB', 'V', 'W',
+  ].join('|');
+  // 띄어 쓰면 관사·일반 글자와 헷갈려서 붙여 쓸 때만 단위로 보는 것: 2A, 8B ("Step 2 A function"은 제외)
+  const ATTACHED_ONLY_UNITS = ['A', 'B'].join('|');
+
   const CODE_PATTERNS = [
     // URL
     /\bhttps?:\/\/[^\s<>"'`]+[^\s<>"'`.,;:!?)\]]/g,
@@ -35,7 +45,32 @@
     /(?<![\w$])[A-Z][A-Z0-9]+s?(?![\w$])/g,
     // @decorator, #include
     /(?<![\w@#])[@#][A-Za-z_][\w-]*/g,
+
+    // --- 로우레벨·하드웨어 문서 ---
+    // 16진수·2진수: 0xFF, 0x4002_0000, 0b1010
+    /(?<![\w$])0[xX][0-9A-Fa-f](?:_?[0-9A-Fa-f])*(?![\w$])/g,
+    /(?<![\w$])0[bB][01](?:_?[01])*(?![\w$])/g,
+    // 비트 범위: [31:16], [7], "bits 7:4"
+    /\[\d+(?::\d+)?\]/g,
+    /(?<=\b(?:[Bb]its?|[Ff]ields?)\s+)\d+:\d+(?![\w:])/g,
+    // 숫자 + 단위: 3.3V, 16 mA, 2.4GHz, 520 KB, 1 µs, 10kΩ, -40 °C (일반 단어 단위와 단독 s는 제외)
+    new RegExp(
+      '(?<![\\w$.])-?\\d+(?:\\.\\d+)?(?:[ \\u00a0]?(?:' + UNITS + ')|(?:' + ATTACHED_ONLY_UNITS + '))(?![\\w$])',
+      'g'
+    ),
+    // 오류 코드: -EINVAL, -ENOMEM
+    /(?<![\w-])-E[A-Z][A-Z0-9]+(?![\w$])/g,
   ];
+
+  // 하이픈으로 이은 부품·규격명: ESP32-C6, Cortex-A76, ARMv8-A, x86-64, UTF-8, USB-C
+  // (pull-up, quad-core, top-10, 2-3 같은 일반 표현은 isPartName에서 걸러 낸다)
+  const PART_NAME = /(?<![\w$-])[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+(?![\w$-])/g;
+
+  function isPartName(s) {
+    const chunks = s.split('-');
+    if (!/\d/.test(s) || !/[A-Za-z]/.test(s)) return false;
+    return /[A-Z]/.test(s) || chunks.some((c) => /[A-Za-z]/.test(c) && /\d/.test(c));
+  }
 
   // 대문자 약어처럼 보이지만 문서의 안내 문구라 번역해도 되는 단어
   const ACRONYM_STOPLIST = new Set(['NOTE', 'NOTES', 'WARNING', 'TIP', 'TIPS', 'IMPORTANT', 'CAUTION', 'DANGER', 'INFO', 'OK']);
@@ -147,6 +182,11 @@
           if (/^[A-Za-z](?:\.[A-Za-z])+$/.test(s)) continue;
           candidates.push({ start: m.index, end: m.index + s.length, text: s, kind: 'code', term: s });
         }
+      }
+
+      PART_NAME.lastIndex = 0;
+      for (const m of text.matchAll(PART_NAME)) {
+        if (isPartName(m[0])) candidates.push({ start: m.index, end: m.index + m[0].length, text: m[0], kind: 'code', term: m[0] });
       }
 
       // 먼저 시작 → 더 긴 것 → 용어(term) 우선 순으로 겹치지 않게 고른다.
