@@ -44,6 +44,15 @@
     return !!el && !!el.closest(HEADING_SELECTOR);
   }
 
+  // 경고 상자(Note, Warning, See also …)의 라벨. 사이트가 인라인으로 표시해도(Python 문서) 본문과 한 문장이 되지 않게 끊는다.
+  const BOX_TITLE_SELECTOR = [
+    '.admonition-title', // Sphinx, MkDocs
+    '.custom-block-title', // VitePress
+    '.alert-heading', // Docsy(Kubernetes), Bootstrap
+    '.admonitionblock .title', // Antora(Spring), Asciidoctor
+    '[class*="admonitionHeading"]', // Docusaurus
+  ].join(', ');
+
   function isNoTranslate(el) {
     return el.getAttribute('translate') === 'no' || el.classList.contains('notranslate');
   }
@@ -61,6 +70,7 @@
     const view = el.ownerDocument && el.ownerDocument.defaultView;
     const display = view && view.getComputedStyle ? view.getComputedStyle(el).display : '';
     if (display === 'none') return 'skip';
+    if (el.matches(BOX_TITLE_SELECTOR)) return 'block';
 
     const isInline = display
       ? display === 'inline' || display === 'contents' || display.startsWith('inline')
