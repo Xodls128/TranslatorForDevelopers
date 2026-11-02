@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>Translator for Developers 번역기 진단</title>
+  <style>
+    body { max-width: 980px; margin: 24px auto; padding: 0 16px; font: 14px/1.6 system-ui, sans-serif; color: #1f2328; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    h2 { font-size: 16px; margin: 24px 0 8px; }
+    .lede { color: #57606a; margin: 0 0 16px; }
+    .row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+    button { padding: 6px 14px; font: inherit; cursor: pointer; }
+    #state { color: #57606a; }
+    #progress { color: #0969da; }
+    dl.summary { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; }
+    dl.summary dt { color: #57606a; }
+    dl.summary dd { margin: 0; font-variant-numeric: tabular-nums; }
+    .table-wrap { overflow-x: auto; border: 1px solid #d0d7de; border-radius: 6px; }
+    table { border-collapse: collapse; width: 100%; font-size: 13px; }
+    th, td { border-bottom: 1px solid #d0d7de; padding: 6px 8px; text-align: left; vertical-align: top; }
+    th { background: #f6f8fa; font-weight: 600; white-space: nowrap; }
+    td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    td:nth-child(3) { white-space: nowrap; }
+    td.bad { color: #cf222e; font-weight: 600; }
+    td.good { color: #1a7f37; }
+    code, .mono { font-family: ui-monospace, monospace; font-size: 12px; }
+    .muted { color: #57606a; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <h1>번역기 진단</h1>
+  <p class="lede">이 기기의 Chrome 내장 번역기로 예문을 번역해, 개발 용어 보호 토큰이 얼마나 보존되는지와 번역 속도를 잽니다.
+    번역은 이 기기 안에서만 이루어지고, 결과는 외부로 전송되지 않습니다.</p>
+
+  <div class="row">
+    <button id="run" type="button">진단 실행</button>
+    <span id="state" role="status">번역기 상태 확인 중…</span>
+  </div>
+  <p id="progress" role="status" hidden></p>
+
+  <section id="results" hidden>
+    <h2>요약</h2>
+    <dl class="summary" id="summary"></dl>
+
+    <h2>토큰 형식 비교</h2>
+    <p class="muted">같은 예문을 토큰 모양만 바꿔 보낸 결과입니다. (확장 동작은 지금 형식 그대로)</p>
+    <dl class="summary" id="formats"></dl>
+
+    <h2>묶어 번역 (3문장씩)</h2>
+    <p class="muted">여러 문장을 줄바꿈으로 묶어 한 번에 번역했을 때 문장 수가 그대로 돌아오는지와 시간입니다.</p>
+    <dl class="summary" id="batch"></dl>
+
+    <div class="row" style="margin-top: 16px">
+      <button id="copy" type="button">결과 복사</button>
+      <span id="copied" class="muted" role="status"></span>
+    </div>
+
+    <h2>예문별 결과</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>#</th><th>분류</th><th>상태</th><th>시간</th><th>원문</th><th>번역기에 넘긴 문장</th><th>번역 결과</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <script src="../data/terms.js"></script>
+  <script src="../core/term-detector.js"></script>
+  <script src="../core/protector.js"></script>
+  <script src="../core/diagnostics.js"></script>
+  <script src="../data/diagnostic-samples.js"></script>
+  <script src="diagnostics.js"></script>
+</body>
+</html>

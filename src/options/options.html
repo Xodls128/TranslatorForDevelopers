@@ -16,6 +16,7 @@
     .row { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
     .row button { margin-top: 0; }
     #usage { color: #666; font-size: 13px; }
+    .tools { margin-top: 24px; padding-top: 12px; border-top: 1px solid #ddd; }
     fieldset { margin: 16px 0 0; padding: 0; border: 0; }
     legend { font-weight: 600; padding: 0; }
     .sub { margin-top: 10px; font-weight: 600; font-size: 13px; }
@@ -74,6 +75,9 @@
   <div>
     <button id="save" type="button">저장</button><span id="status" role="status"></span>
   </div>
+
+  <p class="tools"><a href="../diagnostics/diagnostics.html" target="_blank">번역기 진단 열기</a>
+    <small>이 기기의 내장 번역기로 예문을 번역해 개발 용어 보호가 잘 되는지와 번역 속도를 잽니다.</small></p>
 
   <script src="../data/terms.js"></script>
   <script src="../core/translation-store.js"></script>
