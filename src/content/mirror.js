@@ -24,6 +24,7 @@
   const FORM_CONTROLS = 'input, textarea, select';
   // 바뀐 문장을 같은 문장으로 볼 단어 겹침 비율
   const SIMILARITY = 0.5;
+  const RESIZE_SETTLE_MS = 200; // 창 크기 조절이 이만큼 멈추면 사본 여백을 다시 맞춘다
 
   const mirrors = new Map(); // 원본 문단 → mirror
   const byCopy = new WeakMap(); // 사본 → mirror
@@ -164,6 +165,29 @@
     if (observer) return;
     observer = new MutationObserver(onMutations);
     observer.observe(document.documentElement, { childList: true, characterData: true, subtree: true });
+    // 창 크기에 따라 여백이 달라지는 사이트가 있어, 크기 조절이 멈추면 사본 여백을 다시 맞춘다.
+    let resizeTimer = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => quietly(() => mirrors.forEach(refreshMargins)), RESIZE_SETTLE_MS);
+    });
+  }
+
+  /**
+   * 원본에 지금 적용되는 위아래 여백을 다시 읽어 사본에 적용한다.
+   * 사본이 원본 앞에 있으면 :first-child, p + p 같은 규칙이 원본에 달라질 수 있어, 사본을 잠깐 떼어 내고 읽는다.
+   * (동기로 처리해서 그사이 화면이 그려지지 않는다. 숨긴 원본도 여백 값은 그대로 계산된다)
+   */
+  function refreshMargins(mirror) {
+    if (mirror.editing || !mirror.owner.isConnected) return;
+    const { owner, copy } = mirror;
+    const attached = copy.parentNode === owner.parentNode;
+    if (attached) copy.remove();
+    const style = owner.ownerDocument.defaultView.getComputedStyle(owner);
+    mirror.margins = { top: style.marginTop, bottom: style.marginBottom };
+    copy.style.marginTop = mirror.margins.top;
+    copy.style.marginBottom = mirror.margins.bottom;
+    if (attached) owner.before(copy);
   }
 
   function onMutations(records) {
@@ -234,8 +258,12 @@
     const previous = TFD.sentenceStates(mirror.copy);
     TFD.forgetSentences(mirror.copy);
 
+    // 원본 주변이 바뀌었을 수 있으니 여백을 사본 없이 다시 읽고 새 사본을 만든다.
+    mirror.copy.remove();
+    const style = mirror.owner.ownerDocument.defaultView.getComputedStyle(mirror.owner);
+    mirror.margins = { top: style.marginTop, bottom: style.marginBottom };
     const copy = createCopy(mirror);
-    mirror.copy.replaceWith(copy);
+    mirror.owner.before(copy);
     mirror.copy = copy;
     byCopy.set(copy, mirror);
     if (!previous.length) return;
