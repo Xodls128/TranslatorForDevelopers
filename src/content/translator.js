@@ -15,6 +15,8 @@
   // 테스트에서 짧게 바꿀 수 있도록 TFD에 둔다.
   const TIMEOUTS = { downloadStallMs: 30000, sentenceMs: 20000 };
   let translator = null; // 만들기에 성공한 번역기만 보관한다. 실패하면 다음 클릭에서 새로 시도.
+  let availabilityCheck = null; // 처음 영어를 드래그했을 때 확인한 가용성 (미리 만들지 판단할 때만 씀)
+  let warming = null; // 미리 만드는 중인 번역기 (모델이 이미 기기에 있을 때만)
 
   /**
    * code: unsupported | unavailable | not-allowed | not-supported | offline |
@@ -57,6 +59,24 @@
     return () => outer.removeEventListener('abort', onAbort);
   }
 
+  /** 번역기 가용성을 확인해 둔다. (가볍다. 처음 영어를 드래그해 번역 버튼을 띄울 때 부른다) */
+  function checkTranslator() {
+    if (!('Translator' in self)) return Promise.resolve('unsupported');
+    if (!availabilityCheck) availabilityCheck = Promise.resolve(self.Translator.availability(OPTIONS)).catch(() => null);
+    return availabilityCheck;
+  }
+
+  /**
+   * 번역 버튼에 마우스를 올렸을 때 번역기를 미리 만든다. 모델이 이미 기기에 있을 때('available')만 만들고,
+   * 다운로드가 필요하면 아무것도 하지 않는다(다운로드는 버튼 클릭 안에서만 시작할 수 있음).
+   */
+  async function prewarmTranslator() {
+    if (translator || warming || !('Translator' in self)) return;
+    if ((await checkTranslator()) !== 'available' || translator || warming) return;
+    warming = Promise.resolve(self.Translator.create(OPTIONS)).then((created) => (translator = translator || created));
+    warming.catch(() => {}).finally(() => (warming = null));
+  }
+
   /**
    * 버튼 클릭 핸들러 안에서 await 없이 바로 호출해야 한다. (사용자 동작이 유지되어야 다운로드가 시작됨)
    * @param {{onProgress?: (loaded: number) => void, signal?: AbortSignal}} [options]
@@ -78,6 +98,15 @@
     };
 
     try {
+      // 버튼에 마우스를 올렸을 때 미리 만들기 시작했으면 그것을 기다린다. (실패했으면 아래에서 새로 만든다)
+      if (warming) {
+        watchStall();
+        try {
+          return await untilAborted(warming, controller.signal);
+        } catch (err) {
+          if (controller.signal.aborted) throw err;
+        }
+      }
       const availability = await untilAborted(self.Translator.availability(OPTIONS), controller.signal);
       if (availability === 'unavailable') throw new TranslatorError('unavailable');
       watchStall();
@@ -118,6 +147,8 @@
 
   TFD.TRANSLATOR_TIMEOUTS = TIMEOUTS;
   TFD.getTranslator = getTranslator;
+  TFD.checkTranslator = checkTranslator;
+  TFD.prewarmTranslator = prewarmTranslator;
   TFD.translateText = translateText;
   TFD.TranslatorError = TranslatorError;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

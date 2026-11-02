@@ -24,13 +24,7 @@
   };
   // 이 페이지 주소에 맞는 분야 묶음과 검색 맥락
   const currentSite = () => TFD.resolveSite(location.hostname, location.pathname);
-  let detector = buildDetector();
-  // 번역 결과 기기 저장소. 확장 전용 공간(chrome.storage.local)이라 웹사이트는 읽을 수 없다.
   const hasChromeStorage = typeof chrome !== 'undefined' && !!chrome.storage;
-  const store = TFD.createTranslationStore({
-    storage: hasChromeStorage ? chrome.storage.local : null,
-    enabled: () => settings.saveTranslations,
-  });
   // 이만큼 이상 끌어야 드래그로 본다. (클릭 중 손떨림으로 원문 전환되는 것을 막음)
   const DRAG_THRESHOLD_PX = 5;
 
@@ -39,7 +33,38 @@
   let pointerDown = null;
   let busy = false; // 번역 진행 중. 새 번역 시작만 막고, 원문 전환·용어 검색은 계속 된다.
 
-  const ui = TFD.createUI({ onTranslate: handleTranslate });
+  /*
+   * 단계별 초기화: 번역을 쓰지 않는 페이지에서는 이벤트 리스너만 등록한다.
+   *   페이지 열기      → 이벤트 리스너 (이 파일 맨 아래)
+   *   처음 영어 드래그 → prepare(): 버튼 UI, 번역 기록 저장소, 저장된 설정 읽기, 번역기 가용성 확인
+   *   버튼에 마우스    → 모델이 이미 있으면 번역기를 미리 만든다 (translator.js)
+   *   버튼 클릭        → 용어 감지기가 없으면 만든다 (getDetector) → 번역
+   */
+  let ui = null;
+  let store = null; // 번역 결과 기기 저장소. 확장 전용 공간(chrome.storage.local)이라 웹사이트는 읽을 수 없다.
+  let settingsReady = Promise.resolve();
+  let detector = null; // 처음 번역할 때 만들고, 설정이 바뀌면 비워 두었다가 다음 번역 때 다시 만든다.
+
+  function prepare() {
+    if (ui) return;
+    ui = TFD.createUI({ onTranslate: handleTranslate, onButtonHover: () => TFD.prewarmTranslator() });
+    store = TFD.createTranslationStore({
+      storage: hasChromeStorage ? chrome.storage.local : null,
+      enabled: () => settings.saveTranslations,
+    });
+    if (hasChromeStorage && chrome.storage.sync) {
+      settingsReady = chrome.storage.sync.get({ ...settings }).then(applySettings).catch(() => {});
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area !== 'sync') return;
+        const values = {};
+        for (const [key, { newValue }] of Object.entries(changes)) if (key in settings) values[key] = newValue;
+        applySettings(values);
+      });
+    }
+    TFD.checkTranslator();
+  }
+
+  const hideButton = () => ui && ui.hideButton();
 
   function buildDetector() {
     const packs = new Set(settings.packsAlways);
@@ -47,19 +72,14 @@
     return TFD.createTermDetector({ extraTerms: settings.extraTerms, excludedTerms: settings.excludedTerms, packs: [...packs] });
   }
 
-  function applySettings(values) {
-    Object.assign(settings, values);
-    detector = buildDetector();
+  function getDetector() {
+    if (!detector) detector = buildDetector();
+    return detector;
   }
 
-  if (hasChromeStorage && chrome.storage.sync) {
-    chrome.storage.sync.get(settings).then(applySettings).catch(() => {});
-    chrome.storage.onChanged.addListener((changes, area) => {
-      if (area !== 'sync') return;
-      const values = {};
-      for (const [key, { newValue }] of Object.entries(changes)) if (key in settings) values[key] = newValue;
-      applySettings(values);
-    });
+  function applySettings(values) {
+    Object.assign(settings, values);
+    detector = null;
   }
 
   function isEditable(node) {
@@ -75,11 +95,11 @@
   }
 
   function onPointerDown(e) {
-    pointerDown = ui.contains(e.target) ? null : { x: e.clientX, y: e.clientY };
+    pointerDown = ui && ui.contains(e.target) ? null : { x: e.clientX, y: e.clientY };
   }
 
   function onSelectionDone(e) {
-    if (ui.contains(e.target)) return;
+    if (ui && ui.contains(e.target)) return;
     const isMouse = e.type === 'mouseup';
     const dragged = isMouse
       ? !!pointerDown && Math.hypot(e.clientX - pointerDown.x, e.clientY - pointerDown.y) >= DRAG_THRESHOLD_PX
@@ -91,7 +111,7 @@
     setTimeout(() => {
       const sel = window.getSelection();
       if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
-        ui.hideButton();
+        hideButton();
         return;
       }
       const range = sel.getRangeAt(0);
@@ -100,21 +120,25 @@
       if (TFD.touchesTranslation(range)) {
         // 번역문은 실제로 끌었을 때만 원문으로 바꾼다. 더블클릭 단어 선택 등은 무시한다.
         if (dragged && TFD.showOriginalInRange(range) > 0) sel.removeAllRanges();
-        ui.hideButton();
+        hideButton();
         return;
       }
       if (TFD.inHeading(range.commonAncestorContainer)) {
-        if (dragged && !busy) ui.showToast('제목은 번역하지 않습니다.', { duration: 2000 });
-        ui.hideButton();
+        if (dragged && !busy) {
+          prepare();
+          ui.showToast('제목은 번역하지 않습니다.', { duration: 2000 });
+        }
+        hideButton();
         return;
       }
       // 코드 블록 안에서만 드래그했으면 그 줄들의 주석만 번역한다. (문단과 같이 드래그하면 코드 블록은 건드리지 않음)
       const codeBlock = TFD.codeBlockOf(range);
       if (busy || !/[A-Za-z]/.test(sel.toString()) || (codeBlock && !TFD.hasCommentsToTranslate(codeBlock, range))) {
-        ui.hideButton();
+        hideButton();
         return;
       }
       pendingRange = range.cloneRange();
+      prepare();
       ui.showButton(point || selectionEndPoint(range));
     }, 0);
   }
@@ -199,12 +223,13 @@
 
     try {
       const translator = await translatorReady;
+      await settingsReady; // 처음 드래그 때 읽기 시작한 설정 (보통 이미 와 있음)
       const translateFn = TFD.codeBlockOf(range) ? TFD.translateCodeComments : TFD.translateRange;
       const result = await translateFn(range, {
         translate: (text) => TFD.translateText(translator, text, job.signal),
         // 페이지가 원본 문단을 바꿔 사본을 다시 번역할 때 쓴다. 이번 작업의 취소와는 무관하다.
         backgroundTranslate: (text) => TFD.translateText(translator, text),
-        detector,
+        detector: getDetector(),
         store,
       });
       window.getSelection().removeAllRanges();
@@ -273,7 +298,7 @@
     setPeek(false);
   }
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') ui.hideButton();
+    if (e.key === 'Escape') hideButton();
     if (e.key !== 'Shift') {
       cancelPeek();
       return;
@@ -288,9 +313,9 @@
   document.addEventListener('mousedown', cancelPeek, true);
   // 다른 창으로 가면 keyup이 오지 않으므로 여기서 끝낸다.
   window.addEventListener('blur', cancelPeek);
-  window.addEventListener('scroll', () => ui.hideButton(), { passive: true, capture: true });
+  window.addEventListener('scroll', hideButton, { passive: true, capture: true });
   // 탭을 닫거나 다른 탭으로 갈 때 모아 둔 번역을 바로 기록한다.
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') store.flush();
+    if (document.visibilityState === 'hidden' && store) store.flush();
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

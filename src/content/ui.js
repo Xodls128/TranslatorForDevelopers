@@ -59,7 +59,11 @@
     return node;
   }
 
-  function createUI({ onTranslate }) {
+  /**
+   * @param {{onTranslate: Function, onButtonHover?: Function}} handlers
+   *   onButtonHover: 번역 버튼에 마우스를 올리거나 포커스했을 때 (번역기 미리 준비용)
+   */
+  function createUI({ onTranslate, onButtonHover = () => {} }) {
     const host = document.createElement('div');
     host.id = TFD.UI_HOST_ID;
     const shadow = host.attachShadow({ mode: 'open' });
@@ -80,6 +84,8 @@
 
     // 버튼을 눌러도 드래그한 선택 영역이 풀리지 않게 한다.
     button.addEventListener('mousedown', (e) => e.preventDefault());
+    button.addEventListener('mouseenter', () => onButtonHover());
+    button.addEventListener('focus', () => onButtonHover());
     button.addEventListener('click', (e) => {
       e.preventDefault();
       onTranslate();
