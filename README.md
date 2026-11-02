@@ -101,6 +101,17 @@ npm run test:e2e:chrome  # 설치된 Google Chrome으로 브라우저 테스트
 
 push하거나 PR을 열면 GitHub Actions에서 단위 테스트와 브라우저 테스트(Chromium, Chrome)가 자동으로 실행됩니다 (`.github/workflows/test.yml`).
 
+### 공식 문서 사이트 점검
+
+```bash
+npm run site-check                  # 공식 문서 10곳을 실제로 열어 가짜 번역기로 점검
+npm run site-check -- react python  # 일부 사이트만
+```
+
+결과는 `site-check-results/summary.md`(요약 표와 메모)와 `shots/`(스크린샷)에 저장됩니다.
+외부 사이트에 의존하므로 테스트가 아니라 진단 도구이고, 결과를 보고만 합니다. 번역 품질과 속도는 실제 Chrome에서 확인해야 합니다.
+GitHub Actions의 **site-check** 워크플로를 수동으로 실행해도 됩니다 (Actions 탭 → site-check → Run workflow).
+
 문장을 잘못 자르는 사례를 발견하면 `test/sentence-splitter.test.js`의 `CASES`에 추가하세요.
 
 ## 알려진 한계 / 다음 단계

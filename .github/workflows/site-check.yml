@@ -1,0 +1,45 @@
+name: site-check
+
+# 공식 문서 사이트 점검 (진단 도구). 외부 사이트에 의존하므로 수동으로만 실행하고, 결과를 보고만 한다.
+on:
+  workflow_dispatch:
+    inputs:
+      sites:
+        description: '점검할 사이트 (빈칸이면 전체, 예: react python)'
+        required: false
+        default: ''
+      browser:
+        description: '브라우저'
+        type: choice
+        options: [chromium, chrome]
+        default: chromium
+
+permissions:
+  contents: read
+
+jobs:
+  site-check:
+    name: 공식 문서 사이트 점검 (${{ inputs.browser }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TFD_BROWSER: ${{ inputs.browser }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Chromium 설치
+        if: inputs.browser == 'chromium'
+        run: npx playwright install --with-deps chromium
+      - name: 점검
+        run: npm run site-check -- ${{ inputs.sites }}
+      - name: 결과 올리기 (요약, JSON, 스크린샷)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: site-check-results
+          path: site-check-results/
+          if-no-files-found: ignore

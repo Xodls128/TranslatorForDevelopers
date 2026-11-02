@@ -6,7 +6,8 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "test:e2e": "node --test test/e2e/*.e2e.js",
-    "test:e2e:chrome": "node --env-file=test/e2e/chrome.env --test test/e2e/*.e2e.js"
+    "test:e2e:chrome": "node --env-file=test/e2e/chrome.env --test test/e2e/*.e2e.js",
+    "site-check": "node tools/site-check/run.js"
   },
   "engines": {
     "node": ">=22"
