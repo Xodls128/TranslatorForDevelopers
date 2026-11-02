@@ -338,6 +338,19 @@
     });
   }
 
+  /**
+   * 다른 경로(코드 주석 번역 등)에서 만든 번역문 span을 문장으로 등록한다. 원문 전환·원본 보기가 문장과 똑같이 동작한다.
+   * @param {HTMLSpanElement} span 번역문이 들어 있는 span.tfd-sentence
+   * @param {DocumentFragment} original 원문 조각
+   */
+  function adoptTranslation(span, original) {
+    const id = String(nextId++);
+    span.dataset.tfdId = id;
+    span.dataset.tfdState = 'translated';
+    span.lang = 'ko';
+    stored.set(id, { original, translated: null });
+  }
+
   // 문장 span의 내용을 보관해 둔 반대 상태(원문/번역문) 조각과 맞바꾼다.
   function swap(span, nextState) {
     const entry = stored.get(span.dataset.tfdId);
@@ -637,4 +650,8 @@
   TFD.showOriginalInRange = showOriginalInRange;
   TFD.touchesTranslation = touchesTranslation;
   TFD.showTranslation = showTranslation;
+  TFD.adoptTranslation = adoptTranslation;
+  TFD.translateCached = translateCached;
+  TFD.rememberTranslation = remember;
+  TFD.isInterruption = isInterruption;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

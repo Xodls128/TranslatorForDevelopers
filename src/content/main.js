@@ -108,7 +108,9 @@
         ui.hideButton();
         return;
       }
-      if (busy || !/[A-Za-z]/.test(sel.toString())) {
+      // 코드 블록 안에서만 드래그했으면 그 줄들의 주석만 번역한다. (문단과 같이 드래그하면 코드 블록은 건드리지 않음)
+      const codeBlock = TFD.codeBlockOf(range);
+      if (busy || !/[A-Za-z]/.test(sel.toString()) || (codeBlock && !TFD.hasCommentsToTranslate(codeBlock, range))) {
         ui.hideButton();
         return;
       }
@@ -145,7 +147,9 @@
     } else if (result.translated === 0 && result.skipped > 0) {
       ui.showToast(`${SKIPPED_NOTE(result.skipped)}`, { duration: 5000 });
     } else if (result.translated === 0) {
-      ui.showToast('번역할 영어 문장을 찾지 못했습니다.');
+      ui.showToast(result.unit === 'comment' ? '번역할 영어 주석을 찾지 못했습니다.' : '번역할 영어 문장을 찾지 못했습니다.');
+    } else if (result.unit === 'comment') {
+      showDone(`주석 ${result.translated}개를 번역했습니다. 번역된 부분을 드래그하면 원문으로 돌아갑니다.`);
     } else if (result.skipped > 0) {
       showDone(`${result.translated}문장을 번역했습니다. ${SKIPPED_NOTE(result.skipped)}`, 5000);
     } else {
@@ -195,7 +199,8 @@
 
     try {
       const translator = await translatorReady;
-      const result = await TFD.translateRange(range, {
+      const translateFn = TFD.codeBlockOf(range) ? TFD.translateCodeComments : TFD.translateRange;
+      const result = await translateFn(range, {
         translate: (text) => TFD.translateText(translator, text, job.signal),
         // 페이지가 원본 문단을 바꿔 사본을 다시 번역할 때 쓴다. 이번 작업의 취소와는 무관하다.
         backgroundTranslate: (text) => TFD.translateText(translator, text),
