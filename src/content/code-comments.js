@@ -21,6 +21,24 @@
   const HIGHLIGHTER_CLASS = /(?:^|\s)(?:token|hljs-[\w-]+|sp-syntax-[\w-]+|cm-[\w-]+|tok-[\w-]+|pl-[\w-]+|kw|kw-2|ident|macro|string|number|bool-val|lifetime|prelude-ty|[a-z]{1,2}[0-9]?)(?:\s|$)/;
   const LANGUAGE = /(?:^|\s)(?:language|lang|highlight-source|highlight)-([\w+#-]+)/;
 
+  // 확장 CSS(content.css)는 Shadow DOM 안에 적용되지 않는다. 번역한 주석에 필요한 규칙만 그 Shadow root에 넣는다.
+  const SHADOW_STYLE = `
+    [data-tfd-hidden] { display: none !important; }
+    span.tfd-sentence { border-radius: 2px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+    span.tfd-sentence:hover { box-shadow: 0 0 0 1px rgba(31, 111, 235, 0.55); }
+    span.tfd-sentence[data-tfd-state="translated"] { background-color: rgba(255, 196, 0, 0.16); }
+    span.tfd-sentence[data-tfd-state="original"] { cursor: pointer; }
+    span.tfd-sentence[data-tfd-state="original"]:hover { background-color: rgba(31, 111, 235, 0.06); }
+  `;
+
+  function ensureShadowStyle(root) {
+    if (!(root instanceof ShadowRoot) || root.querySelector('style[data-tfd-style]')) return;
+    const style = root.ownerDocument.createElement('style');
+    style.setAttribute('data-tfd-style', '');
+    style.textContent = SHADOW_STYLE;
+    root.append(style);
+  }
+
   /** 선택 영역의 시작과 끝이 같은 코드 블록 안이면 그 <pre>를 돌려준다. */
   function codeBlockOf(range) {
     const preOf = (node) => {
@@ -174,6 +192,7 @@
       const mirrored = TFD.mirrorBlock(source, deps);
       if (!mirrored) return { ...result, skipped: 1 };
       pre = mirrored.copy;
+      (TFD.quietly || ((fn) => fn()))(() => ensureShadowStyle(pre.getRootNode()));
     }
     const scope = pre.ownerDocument.createRange();
     scope.selectNodeContents(pre);

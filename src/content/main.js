@@ -98,8 +98,30 @@
     pointerDown = ui && ui.contains(e.target) ? null : { x: e.clientX, y: e.clientY };
   }
 
+  /**
+   * 열린 Shadow DOM 안(MDN 코드 예제 등)을 드래그하면 document의 선택 범위는 바깥에 접힌 빈 범위로 보인다.
+   * 이벤트 경로의 Shadow root를 넘겨 그 안의 실제 범위를 얻는다. 없으면 null.
+   */
+  function shadowRange(sel, roots) {
+    if (!roots.length || typeof sel.getComposedRanges !== 'function') return null;
+    let ranges;
+    try {
+      ranges = sel.getComposedRanges({ shadowRoots: roots });
+    } catch {
+      return null;
+    }
+    const r = ranges && ranges[0];
+    if (!r || r.collapsed || !(r.startContainer.getRootNode() instanceof ShadowRoot)) return null;
+    const range = document.createRange();
+    range.setStart(r.startContainer, r.startOffset);
+    range.setEnd(r.endContainer, r.endOffset);
+    return range;
+  }
+
   function onSelectionDone(e) {
     if (ui && ui.contains(e.target)) return;
+    // Shadow DOM 안의 선택을 읽으려면 이벤트가 지나간 Shadow root가 필요하다. (이벤트가 끝나면 경로를 얻을 수 없음)
+    const shadowRoots = e.composedPath().filter((node) => node instanceof ShadowRoot);
     const isMouse = e.type === 'mouseup';
     const dragged = isMouse
       ? !!pointerDown && Math.hypot(e.clientX - pointerDown.x, e.clientY - pointerDown.y) >= DRAG_THRESHOLD_PX
@@ -110,11 +132,11 @@
     // 선택 영역이 확정된 뒤에 읽는다.
     setTimeout(() => {
       const sel = window.getSelection();
-      if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
+      const range = (sel && shadowRange(sel, shadowRoots)) || (sel && sel.rangeCount && !sel.isCollapsed ? sel.getRangeAt(0) : null);
+      if (!range || range.collapsed) {
         hideButton();
         return;
       }
-      const range = sel.getRangeAt(0);
       if (isEditable(range.commonAncestorContainer)) return;
 
       if (TFD.touchesTranslation(range)) {
@@ -133,7 +155,7 @@
       }
       // 코드 블록 안에서만 드래그했으면 그 줄들의 주석만 번역한다. (문단과 같이 드래그하면 코드 블록은 건드리지 않음)
       const codeBlock = TFD.codeBlockOf(range);
-      if (busy || !/[A-Za-z]/.test(sel.toString()) || (codeBlock && !TFD.hasCommentsToTranslate(codeBlock, range))) {
+      if (busy || !/[A-Za-z]/.test(range.toString()) || (codeBlock && !TFD.hasCommentsToTranslate(codeBlock, range))) {
         hideButton();
         return;
       }
@@ -247,11 +269,13 @@
   }
 
   function onClick(e) {
-    if (!(e.target instanceof Element)) return;
+    // Shadow DOM 안에서 클릭하면 e.target은 바깥 요소로 바뀌어 보이므로, 실제로 누른 요소를 쓴다.
+    const target = e.composedPath()[0];
+    if (!(target instanceof Element)) return;
     const sel = window.getSelection();
     if (sel && !sel.isCollapsed) return;
 
-    const term = e.target.closest('.tfd-term');
+    const term = target.closest('.tfd-term');
     if (term) {
       e.preventDefault();
       e.stopPropagation();
@@ -261,8 +285,8 @@
     }
 
     // 원문으로 전환된 문장을 클릭하면 번역문으로 되돌린다. (문장 안 링크 클릭은 그대로 둔다)
-    const sentence = e.target.closest('.tfd-sentence[data-tfd-state="original"]');
-    if (sentence && !e.target.closest('a')) {
+    const sentence = target.closest('.tfd-sentence[data-tfd-state="original"]');
+    if (sentence && !target.closest('a')) {
       TFD.showTranslation(sentence);
       return;
     }

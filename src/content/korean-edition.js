@@ -22,18 +22,44 @@
    * @param {Document} doc
    * @returns {string|null} 한국어판 주소. 없거나 지금 페이지가 이미 한국어판이면 null
    */
+  // 같은 사이트인가: 같은 주소이거나 한쪽이 다른 쪽의 하위 도메인 (react.dev ↔ ko.react.dev)
+  function sameSite(a, b) {
+    const strip = (h) => h.replace(/^www\./, '');
+    const x = strip(a);
+    const y = strip(b);
+    return x === y || x.endsWith('.' + y) || y.endsWith('.' + x);
+  }
+
+  // 문서와 그 안의 열린 Shadow DOM (MDN 언어 메뉴처럼 웹 컴포넌트 안에 있는 링크도 찾는다)
+  function searchRoots(doc) {
+    const roots = [doc];
+    for (let i = 0; i < roots.length; i++) {
+      for (const el of roots[i].querySelectorAll('*')) if (el.shadowRoot) roots.push(el.shadowRoot);
+    }
+    return roots;
+  }
+
+  /**
+   * @param {Document} doc
+   * @returns {string|null} 한국어판 주소. 없거나 지금 페이지가 이미 한국어판이면 null
+   *   인정하는 링크: hreflang="ko", 그리고 같은 사이트로 가는 글자가 정확히 "한국어"인 링크 (언어 메뉴)
+   */
   function findKoreanEdition(doc = document) {
     if (KOREAN.test(doc.documentElement.lang || '')) return null;
     const here = withoutHash(doc.location ? doc.location.href : '');
-    const candidates = [
-      ...doc.querySelectorAll('link[rel~="alternate"][hreflang][href]'),
-      ...doc.querySelectorAll('a[hreflang][href]'),
-    ];
-    for (const el of candidates) {
-      if (!KOREAN.test(el.getAttribute('hreflang'))) continue;
-      const href = el.href; // 상대 주소를 절대 주소로
-      if (!/^https?:/.test(href) || withoutHash(href) === here) continue;
-      return href;
+    const host = doc.location ? doc.location.hostname : '';
+    const usable = (href) => /^https?:/.test(href) && withoutHash(href) !== here;
+    const roots = searchRoots(doc);
+    for (const root of roots) {
+      for (const el of root.querySelectorAll('link[rel~="alternate"][hreflang][href], a[hreflang][href]')) {
+        if (KOREAN.test(el.getAttribute('hreflang')) && usable(el.href)) return el.href;
+      }
+    }
+    for (const root of roots) {
+      for (const a of root.querySelectorAll('a[href]')) {
+        if (a.textContent.trim() !== '한국어' || !usable(a.href)) continue;
+        if (sameSite(new URL(a.href).hostname, host)) return a.href;
+      }
     }
     return null;
   }

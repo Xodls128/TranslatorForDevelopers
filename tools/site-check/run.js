@@ -106,8 +106,8 @@ async function dragTranslate(page, a, b) {
     getSelection().addRange(range);
     const ra = a.getBoundingClientRect();
     const rb = b.getBoundingClientRect();
-    a.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: ra.left + 2, clientY: ra.top + 2 }));
-    b.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: Math.max(rb.right - 2, ra.left + 40), clientY: rb.bottom - 2 }));
+    a.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true, clientX: ra.left + 2, clientY: ra.top + 2 }));
+    b.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, composed: true, clientX: Math.max(rb.right - 2, ra.left + 40), clientY: rb.bottom - 2 }));
   }, [a, b]);
   await page.waitForTimeout(150);
   const button = await page.evaluate(() => !document.getElementById('tfd-ui-host').shadowRoot.querySelector('.button').hidden);
@@ -344,7 +344,10 @@ async function checkSite(browser, [id, name, url]) {
     } else notFound(15, '문단 바로 뒤의 코드 블록');
 
     // ---------- 주석: 코드 블록 안에서만 드래그 → 주석만 번역 ----------
-    const commented = await page.evaluateHandle(() => [...window.__chk.root.querySelectorAll('pre')].find((pre) => {
+    const commented = await page.evaluateHandle(() => [
+      ...window.__chk.root.querySelectorAll('pre'),
+      ...[...window.__chk.root.querySelectorAll('*')].filter((el) => el.shadowRoot).flatMap((el) => [...el.shadowRoot.querySelectorAll('pre')]),
+    ].find((pre) => {
       if (!window.__chk.visible(pre) || window.__chk.touched(pre)) return false;
       const range = document.createRange();
       range.selectNodeContents(pre);

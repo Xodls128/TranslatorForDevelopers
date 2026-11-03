@@ -24,6 +24,8 @@
   const FORM_CONTROLS = 'input, textarea, select';
   // 바뀐 문장을 같은 문장으로 볼 단어 겹침 비율
   const SIMILARITY = 0.5;
+  const OBSERVE_OPTIONS = { childList: true, characterData: true, subtree: true };
+  const observedRoots = new WeakSet(); // 따로 감시 중인 Shadow root
   const RESIZE_SETTLE_MS = 200; // 창 크기 조절이 이만큼 멈추면 사본 여백을 다시 맞춘다
 
   const mirrors = new Map(); // 원본 문단 → mirror
@@ -140,6 +142,12 @@
     mirrors.set(owner, mirror);
     byCopy.set(mirror.copy, mirror);
     startObserving();
+    // Shadow DOM 안의 문단(MDN 코드 예제 등)은 문서 감시에 잡히지 않으므로 그 Shadow root도 감시한다.
+    const root = owner.getRootNode();
+    if (root instanceof ShadowRoot && !observedRoots.has(root)) {
+      observedRoots.add(root);
+      observer.observe(root, OBSERVE_OPTIONS);
+    }
     // 방금 우리가 한 DOM 변경은 감지 대상에서 뺀다.
     observer.takeRecords();
     return { copy: mirror.copy, carried };
@@ -164,7 +172,7 @@
   function startObserving() {
     if (observer) return;
     observer = new MutationObserver(onMutations);
-    observer.observe(document.documentElement, { childList: true, characterData: true, subtree: true });
+    observer.observe(document.documentElement, OBSERVE_OPTIONS);
     // 창 크기에 따라 여백이 달라지는 사이트가 있어, 크기 조절이 멈추면 사본 여백을 다시 맞춘다.
     let resizeTimer = null;
     window.addEventListener('resize', () => {

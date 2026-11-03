@@ -378,8 +378,10 @@
   }
 
   function spansInRange(selRange, state) {
-    const doc = selRange.startContainer.ownerDocument;
-    return Array.from(doc.querySelectorAll(`span.tfd-sentence[data-tfd-state="${state}"]`))
+    // 선택 영역이 Shadow DOM 안이면 그 Shadow root에서 찾는다. (document에서는 안이 보이지 않음)
+    const scope = selRange.commonAncestorContainer.getRootNode();
+    const root = scope && scope.querySelectorAll ? scope : selRange.startContainer.ownerDocument;
+    return Array.from(root.querySelectorAll(`span.tfd-sentence[data-tfd-state="${state}"]`))
       .filter((span) => selRange.intersectsNode(span));
   }
 
