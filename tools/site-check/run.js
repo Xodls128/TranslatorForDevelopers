@@ -222,13 +222,16 @@ async function checkSite(browser, [id, name, url]) {
       span.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: r.left + 2, clientY: r.top + 2 }));
       span.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: r.left + 60, clientY: r.top + 4 }));
       await new Promise((ok) => setTimeout(ok, 120));
-      const dragged = span.dataset.tfdState;
+      const dragged = span.dataset.tfdState; // 드래그는 그대로 (선택·복사)
       getSelection().removeAllRanges();
       span.click();
-      await new Promise((ok) => setTimeout(ok, 50));
-      return [dragged, span.dataset.tfdState];
+      await new Promise((ok) => setTimeout(ok, 400)); // 클릭 전환은 더블클릭 구분을 위해 0.3초 뒤
+      const clicked = span.dataset.tfdState;
+      span.click();
+      await new Promise((ok) => setTimeout(ok, 400));
+      return [dragged, clicked, span.dataset.tfdState];
     }, p1);
-    set(4, mark(swap && swap[0] === 'original' && swap[1] === 'translated'), swap ? `드래그 후 ${swap[0]}, 클릭 후 ${swap[1]}` : '번역문이 없어 확인 못 함');
+    set(4, mark(swap && swap[0] === 'translated' && swap[1] === 'original' && swap[2] === 'translated'), swap ? `드래그 후 ${swap[0]}, 클릭 후 ${swap[1]}, 다시 클릭 후 ${swap[2]}` : '번역문이 없어 확인 못 함');
 
     const peek = await page.evaluate(async (p) => {
       const copy = window.__chk.shown(p);

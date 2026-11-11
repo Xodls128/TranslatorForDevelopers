@@ -95,7 +95,9 @@
     });
 
     // 마우스를 놓은 지점 오른쪽 아래에 띄우고, 화면 밖으로 나가면 반대쪽으로 옮긴다.
-    function showButton(point) {
+    /** @param {{x: number, y: number}} point 마우스를 뗀 곳 @param {string} [label] 버튼 글자 ("번역" 또는 "원문 보기") */
+    function showButton(point, label = '번역') {
+      button.textContent = label;
       button.hidden = false;
       const { width, height } = button.getBoundingClientRect();
       const gap = 10;

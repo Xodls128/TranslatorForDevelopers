@@ -216,7 +216,9 @@ test('번역 중에도 이미 번역된 문장의 원문 전환은 되고, 새 �
   await page.locator('#tfd-ui-host .button').click();
   await page.waitForTimeout(100);
 
-  await select(page, '#p1', '[ko]', 'can call');
+  await page.evaluate(() => getSelection().removeAllRanges());
+  await page.locator('#p1 .tfd-sentence').first().click({ position: { x: 5, y: 5 } });
+  await page.waitForTimeout(400);
   assert.deepEqual(await states(page, '#p1'), ['original']);
   await select(page, '#p1', 'It returns', 'object');
   assert.equal(await buttonVisible(page), false);
@@ -277,7 +279,9 @@ test('하나씩 표시: 도중에 취소하면 끝난 문장은 남고, 대기 �
   assert.deepEqual(await states(page, '#p1'), ['translated']);
   assert.equal(await page.$$eval('[data-tfd-state="pending"]', (els) => els.length), 0);
   // 되돌린 문장은 원래 글자 그대로 (번역된 첫 문장을 원문으로 돌리면 전체가 원래와 같다)
-  await select(page, '#p1', '[ko]', 'can call');
+  await page.evaluate(() => getSelection().removeAllRanges());
+  await page.locator('#p1 .tfd-sentence').first().click({ position: { x: 5, y: 5 } });
+  await page.waitForTimeout(400);
   assert.equal(await page.$eval('#p1', (el) => el.textContent), before);
   await page.close();
 });

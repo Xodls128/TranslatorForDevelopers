@@ -636,6 +636,11 @@
     return spansInRange(selRange, 'translated').length > 0;
   }
 
+  /** 번역 상태의 문장 span을 원문으로 보여 준다. (클릭용) */
+  function showOriginal(span) {
+    return swap(span, 'original');
+  }
+
   /** 원문 상태의 문장 span을 번역문으로 되돌린다. */
   function showTranslation(span) {
     return swap(span, 'translated');
@@ -652,6 +657,7 @@
   TFD.showOriginalInRange = showOriginalInRange;
   TFD.touchesTranslation = touchesTranslation;
   TFD.showTranslation = showTranslation;
+  TFD.showOriginal = showOriginal;
   TFD.adoptTranslation = adoptTranslation;
   TFD.translateCached = translateCached;
   TFD.rememberTranslation = remember;

@@ -130,11 +130,19 @@ test('Pygments(클래스): 드래그한 줄의 주석만, 이어지는 주석 �
   assert.equal(await page.evaluate(() => document.querySelectorAll('#py').length), 2);
 });
 
-test('번역된 주석: 드래그하면 원문, 클릭하면 번역문', async () => {
+test('번역된 주석: 드래그하면 그대로, 클릭하면 원문, 다시 클릭하면 번역문', async () => {
+  const state = () => page.evaluate(() => document.querySelector('pre.tfd-copy .tfd-sentence').dataset.tfdState);
   await select('#py', '[ko] class', 'instances');
-  assert.equal(await page.evaluate(() => document.querySelector('pre.tfd-copy .tfd-sentence').dataset.tfdState), 'original');
-  await page.evaluate(() => { getSelection().removeAllRanges(); document.querySelector('pre.tfd-copy .tfd-sentence').click(); });
-  assert.equal(await page.evaluate(() => document.querySelector('pre.tfd-copy .tfd-sentence').dataset.tfdState), 'translated');
+  assert.equal(await state(), 'translated');
+  assert.equal(await page.evaluate(() => document.getElementById('tfd-ui-host').shadowRoot.querySelector('.button').textContent), '원문 보기');
+  await page.keyboard.press('Escape'); // 버튼을 닫는다 (누르지 않으면 그냥 선택)
+  await page.evaluate(() => getSelection().removeAllRanges());
+  await page.locator('pre.tfd-copy .tfd-sentence').first().click({ position: { x: 5, y: 5 } });
+  await page.waitForTimeout(400);
+  assert.equal(await state(), 'original');
+  await page.locator('pre.tfd-copy .tfd-sentence').first().click({ position: { x: 5, y: 5 } });
+  await page.waitForTimeout(400);
+  assert.equal(await state(), 'translated');
 });
 
 test('Shiki(글자색만, language-js): 주석 기호로 찾고, 문자열 안 //와 영어 없는 주석은 건드리지 않는다', async () => {

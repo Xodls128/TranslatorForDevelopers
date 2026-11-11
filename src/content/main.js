@@ -2,8 +2,8 @@
  * 사용자 동작 연결
  *
  * - 번역되지 않은 영어를 드래그하면 → 마우스 옆에 "번역" 버튼 표시 → 누르면 걸친 문장들을 번역
- * - 번역된 문장을 드래그하면 → 걸친 문장들을 바로 원문으로 전환 (단순 클릭/더블클릭으로는 바뀌지 않음)
- * - 원문으로 전환된 문장을 클릭하면 → 다시 번역문으로
+ * - 번역된 문장을 클릭하면 → 그 문장을 원문으로, 다시 클릭하면 번역문으로 (더블클릭으로는 바뀌지 않음)
+ * - 번역된 문장들을 드래그하면 → "원문 보기" 버튼 표시 → 누르면 걸친 문장들을 모두 원문으로 (누르지 않으면 그냥 선택·복사)
  * - 번역문 속 개발 용어(점선 밑줄)를 클릭하면 → 검색 페이지를 새 탭으로 연다
  */
 (function (root) {
@@ -29,6 +29,7 @@
   const DRAG_THRESHOLD_PX = 5;
 
   let pendingRange = null;
+  let pendingMode = 'translate'; // 버튼이 할 일: 'translate'(번역) 또는 'original'(번역문을 원문으로)
   let lastRange = null; // 안내 카드의 "다시 시도"에 쓰는 직전 번역 영역
   let pointerDown = null;
   let busy = false; // 번역 진행 중. 새 번역 시작만 막고, 원문 전환·용어 검색은 계속 된다.
@@ -47,7 +48,7 @@
 
   function prepare() {
     if (ui) return;
-    ui = TFD.createUI({ onTranslate: handleTranslate, onButtonHover: () => TFD.prewarmTranslator() });
+    ui = TFD.createUI({ onTranslate: handleTranslate, onButtonHover: () => pendingMode === 'translate' && TFD.prewarmTranslator() });
     store = TFD.createTranslationStore({
       storage: hasChromeStorage ? chrome.storage.local : null,
       enabled: () => settings.saveTranslations,
@@ -140,9 +141,16 @@
       if (isEditable(range.commonAncestorContainer)) return;
 
       if (TFD.touchesTranslation(range)) {
-        // 번역문은 실제로 끌었을 때만 원문으로 바꾼다. 더블클릭 단어 선택 등은 무시한다.
-        if (dragged && TFD.showOriginalInRange(range) > 0) sel.removeAllRanges();
-        hideButton();
+        // 번역문을 드래그하면 "원문 보기" 버튼만 띄운다. 누르지 않으면 그냥 선택이라 복사할 수 있다.
+        // (더블클릭 단어 선택처럼 끌지 않은 선택에는 띄우지 않는다)
+        if (!dragged) {
+          hideButton();
+          return;
+        }
+        pendingRange = range.cloneRange();
+        pendingMode = 'original';
+        prepare();
+        ui.showButton(point || selectionEndPoint(range), '원문 보기');
         return;
       }
       if (TFD.inHeading(range.commonAncestorContainer)) {
@@ -160,8 +168,9 @@
         return;
       }
       pendingRange = range.cloneRange();
+      pendingMode = 'translate';
       prepare();
-      ui.showButton(point || selectionEndPoint(range));
+      ui.showButton(point || selectionEndPoint(range), '번역');
     }, 0);
   }
 
@@ -172,6 +181,7 @@
     ui.showCard(TFD.describeError(code, { ...info, stallSeconds, detail }), {
       onRetry: () => {
         pendingRange = lastRange;
+        pendingMode = 'translate';
         handleTranslate();
       },
     });
@@ -195,11 +205,11 @@
     } else if (result.translated === 0) {
       ui.showToast(result.unit === 'comment' ? '번역할 영어 주석을 찾지 못했습니다.' : '번역할 영어 문장을 찾지 못했습니다.');
     } else if (result.unit === 'comment') {
-      showDone(`주석 ${result.translated}개를 번역했습니다. 번역된 부분을 드래그하면 원문으로 돌아갑니다.`);
+      showDone(`주석 ${result.translated}개를 번역했습니다. 번역된 문장을 클릭하면 원문으로 바뀝니다.`);
     } else if (result.skipped > 0) {
       showDone(`${result.translated}문장을 번역했습니다. ${SKIPPED_NOTE(result.skipped)}`, 5000);
     } else {
-      showDone(`${result.translated}문장을 번역했습니다. 번역된 부분을 드래그하면 원문으로 돌아갑니다.`);
+      showDone(`${result.translated}문장을 번역했습니다. 번역된 문장을 클릭하면 원문으로 바뀝니다.`);
     }
   }
 
@@ -229,6 +239,11 @@
     const range = pendingRange;
     pendingRange = null;
     ui.hideButton();
+    // "원문 보기" 버튼: 걸친 번역문들을 원문으로 바꾼다. (번역 중에도 된다)
+    if (pendingMode === 'original') {
+      if (range && TFD.showOriginalInRange(range) > 0) window.getSelection().removeAllRanges();
+      return;
+    }
     if (!range || busy) return;
 
     busy = true;
@@ -268,7 +283,31 @@
     }
   }
 
+  // 문장 클릭 전환은 잠깐 기다렸다가 한다. 그사이 두 번째 클릭이 오면 더블클릭(단어 선택)이라 전환하지 않는다.
+  const CLICK_DELAY_MS = 300;
+  let pendingToggle = null;
+  function cancelPendingToggle() {
+    clearTimeout(pendingToggle);
+    pendingToggle = null;
+  }
+
+  function scheduleToggle(sentence) {
+    cancelPendingToggle();
+    pendingToggle = setTimeout(() => {
+      pendingToggle = null;
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed) return; // 그사이 글자를 선택했으면 전환하지 않는다
+      if (sentence.dataset.tfdState === 'translated') TFD.showOriginal(sentence);
+      else if (sentence.dataset.tfdState === 'original') TFD.showTranslation(sentence);
+    }, CLICK_DELAY_MS);
+  }
+
   function onClick(e) {
+    // 더블클릭·세 번 클릭(단어·문단 선택)이면 기다리던 전환을 취소한다.
+    if (e.detail > 1) {
+      cancelPendingToggle();
+      return;
+    }
     // Shadow DOM 안에서 클릭하면 e.target은 바깥 요소로 바뀌어 보이므로, 실제로 누른 요소를 쓴다.
     const target = e.composedPath()[0];
     if (!(target instanceof Element)) return;
@@ -284,10 +323,10 @@
       return;
     }
 
-    // 원문으로 전환된 문장을 클릭하면 번역문으로 되돌린다. (문장 안 링크 클릭은 그대로 둔다)
-    const sentence = target.closest('.tfd-sentence[data-tfd-state="original"]');
+    // 번역문을 클릭하면 원문으로, 원문을 클릭하면 번역문으로. (문장 안 링크 클릭은 링크 동작을 우선한다)
+    const sentence = target.closest('.tfd-sentence[data-tfd-state="translated"], .tfd-sentence[data-tfd-state="original"]');
     if (sentence && !target.closest('a')) {
-      TFD.showTranslation(sentence);
+      scheduleToggle(sentence);
       return;
     }
 

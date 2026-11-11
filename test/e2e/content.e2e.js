@@ -91,6 +91,13 @@ async function clickTranslate() {
 
 // 사본을 만들 때 원본과 사본의 링크·버튼에 다는 클릭 전달용 번호는 비교에서 뺀다.
 const withoutRefs = (html) => html.replace(/ data-tfd-ref="\d+"/g, '');
+// 문장을 클릭하고 클릭 전환 대기 시간(0.3초)이 지나기를 기다린다.
+async function clickSentence(selector, index) {
+  await page.evaluate(() => getSelection().removeAllRanges());
+  await page.locator(`${selector} .tfd-sentence`).nth(index).click({ position: { x: 5, y: 5 } });
+  await page.waitForTimeout(400);
+}
+
 const states = (selector) => page.$$eval(`${selector} .tfd-sentence`, (els) => els.map((el) => el.dataset.tfdState));
 const texts = (selector) => page.$$eval(`${selector} .tfd-sentence`, (els) => els.map((el) => el.textContent));
 
@@ -127,28 +134,64 @@ test('영어 드래그 → 마우스 옆 번역 버튼 → 걸친 문장만 번�
   assert.deepEqual(await page.evaluate(() => window.__translated), ['A ⟦0⟧ can call ⟦1⟧ at any time.', 'It returns a ⟦0⟧ object.']);
 });
 
-test('제자리 클릭(더블클릭 단어 선택 포함)으로는 원문으로 바뀌지 않는다', async () => {
-  await select('#p1', 'It returns', 'returns', { from: [200, 100], to: [201, 100] });
+const buttonLabel = () => page.evaluate(() => document.getElementById('tfd-ui-host').shadowRoot.querySelector('.button').textContent);
+
+test('번역문을 드래그하면 "원문 보기" 버튼만 뜨고 바로 바뀌지 않는다 (선택·복사용), 더블클릭해도 그대로', async () => {
+  await select('#p1', '[ko] It', 'returns');
   assert.deepEqual(await states('#p1'), ['translated', 'translated']);
+  assert.match(await page.evaluate(() => getSelection().toString()), /It returns/, '선택은 그대로 남아 복사할 수 있다');
+  assert.ok(await buttonBox());
+  assert.equal(await buttonLabel(), '원문 보기');
+  await page.evaluate(() => getSelection().removeAllRanges());
+  await page.mouse.click(5, 5); // 다른 곳을 누르면 버튼은 사라진다
+  await page.waitForTimeout(50);
   assert.equal(await buttonBox(), null);
+
+  const word = await page.$eval('#p1.tfd-copy .tfd-sentence:nth-of-type(2)', (el) => {
+    const r = el.getClientRects()[0];
+    return { x: r.left + 30, y: r.top + r.height / 2 };
+  });
+  await page.mouse.dblclick(word.x, word.y);
+  await page.waitForTimeout(400);
+  assert.deepEqual(await states('#p1'), ['translated', 'translated']);
 });
 
-test('번역문 드래그 → 원문, 원문 클릭 → 다시 번역문', async () => {
-  await select('#p1', '[ko] It', 'returns');
+test('번역된 여러 문장을 드래그 → "원문 보기" 버튼 → 걸친 문장 모두 원문으로', async () => {
+  await select('#p1', '[ko]', 'object');
+  assert.ok(await buttonBox());
+  assert.equal(await buttonLabel(), '원문 보기');
+  const calls = await page.evaluate(() => window.__translated.length);
+  await page.locator('#tfd-ui-host .button').click();
+  assert.deepEqual(await states('#p1'), ['original', 'original']);
+  assert.equal(await page.evaluate(() => getSelection().toString()), '', '선택은 풀린다');
+  assert.equal(await page.evaluate(() => window.__translated.length), calls, '번역기를 부르지 않는다');
+  // 다시 번역문으로 (한 문장씩 클릭)
+  await clickSentence('#p1', 0);
+  await clickSentence('#p1', 1);
+  assert.deepEqual(await states('#p1'), ['translated', 'translated']);
+  // 영어를 드래그하면 다시 "번역" 버튼
+  await select('#kb', 'Keyboard', 'here');
+  assert.equal(await buttonLabel(), '번역');
+  await page.evaluate(() => getSelection().removeAllRanges());
+  await page.mouse.click(5, 5);
+});
+
+test('번역문 클릭 → 원문, 원문 클릭 → 다시 번역문', async () => {
+  const calls = await page.evaluate(() => window.__translated.length);
+  await clickSentence('#p1', 1);
   assert.deepEqual(await states('#p1'), ['translated', 'original']);
   assert.equal((await texts('#p1'))[1], 'It returns a Promise object.');
   assert.equal(await buttonBox(), null);
 
   // 원문 상태 문장을 클릭하면 번역문으로 돌아온다. (번역기를 다시 부르지 않는다)
-  const calls = await page.evaluate(() => window.__translated.length);
-  await page.locator('#p1 .tfd-sentence[data-tfd-state="original"]').click({ position: { x: 5, y: 5 } });
+  await clickSentence('#p1', 1);
   assert.deepEqual(await states('#p1'), ['translated', 'translated']);
   assert.equal((await texts('#p1'))[1], '[ko] It returns a Promise object.');
   assert.equal(await page.evaluate(() => window.__translated.length), calls);
 });
 
 test('원문 상태 문장을 다시 드래그해서 번역 버튼을 누르면 보관된 번역문으로 돌아온다', async () => {
-  await select('#p1', '[ko] It', 'returns');
+  await clickSentence('#p1', 1);
   assert.deepEqual(await states('#p1'), ['translated', 'original']);
   await select('#p1', 'It returns', 'object');
   assert.ok(await buttonBox());
@@ -161,7 +204,7 @@ test('여러 줄과 <strong>에 걸친 문장도 한 문장으로 번역하고, 
   await clickTranslate();
   assert.equal((await texts('#p1'))[2], '[ko] This sentence spans lines and has bold text inside.');
 
-  await select('#p1', '[ko] This', 'spans');
+  await clickSentence('#p1', 2);
   const restored = await page.$eval('#p1 .tfd-sentence[data-tfd-state="original"]', (el) => el.innerHTML);
   assert.match(restored, /^This sentence spans\s+lines and has <strong>bold text<\/strong> inside\.$/);
 });
@@ -181,7 +224,8 @@ test('용어 클릭 시 검색 페이지 열기', async () => {
   await page.locator('#term-p .tfd-term').click();
   const opened = await page.evaluate(() => window.__opened);
   assert.deepEqual(opened, ['https://www.google.com/search?q=' + encodeURIComponent('프로그래밍언어 promise')]);
-  // 용어 클릭은 문장 전환을 일으키지 않는다.
+  // 용어 클릭은 문장 전환을 일으키지 않는다. (클릭 전환 대기 시간이 지나도)
+  await page.waitForTimeout(400);
   assert.deepEqual(await states('#term-p'), ['translated']);
 });
 
@@ -219,7 +263,7 @@ test('강조 A: 문장 글자 전체가 강조면 마침표가 밖에 있어도 
   assert.equal(await page.$$eval('#em-outside .tfd-sentence:last-of-type strong', (els) => els.length), 0);
 
   // 원문 보기로 돌리면 원래 HTML 그대로
-  await select('#em-outside', 'Never', 'production');
+  await clickSentence('#em-outside', 0);
   assert.equal(await page.$eval('#em-outside .tfd-sentence[data-tfd-state="original"]', (el) => el.innerHTML), '<strong>Never call this in production</strong>.');
 });
 
@@ -274,8 +318,29 @@ test('링크: 일반 링크는 "한국어[원문]"으로 바꾸고 링크 기능
   assert.equal(withoutRefs(await page.$eval('#links a[href="#same"]', (a) => a.outerHTML)), '<a href="#same">Vite docs</a>');
 
   // 원문 보기로 돌리면 원래 링크 그대로
-  for (const [start, end] of [['자세한', '내용은'], ['[ko] Read', 'Read'], ['[ko] ', 'exists'], ['[ko] Check', 'Check']]) {
-    await select('#links', start, end);
+  // 번역문 속 링크를 누르면 링크 동작만 하고 문장은 그대로다.
+  await page.locator('#links.tfd-copy a[href="#guide"]').click();
+  await page.waitForTimeout(400);
+  assert.deepEqual(await states('#links'), ['translated', 'translated', 'translated', 'translated']);
+
+  // 링크를 누르면 링크 동작이 우선이므로, 문장마다 링크가 아닌 글자를 클릭한다.
+  const count = await page.$$eval('#links .tfd-sentence', (els) => els.length);
+  for (let i = 0; i < count; i++) {
+    const point = await page.$$eval('#links .tfd-sentence', (els, i) => {
+      const walker = document.createTreeWalker(els[i], NodeFilter.SHOW_TEXT);
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        if (n.parentElement.closest('a') || !n.data.trim()) continue;
+        const range = document.createRange();
+        range.setStart(n, 0);
+        range.setEnd(n, 1);
+        const r = range.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      }
+      return null;
+    }, i);
+    await page.evaluate(() => getSelection().removeAllRanges());
+    await page.mouse.click(point.x, point.y);
+    await page.waitForTimeout(400);
   }
   const restored = await page.$$eval('#links .tfd-sentence', (els) => els.map((el) => el.innerHTML).join(' '));
   assert.equal(withoutRefs(restored), original);
@@ -295,7 +360,7 @@ test('문단 안 문단: 안쪽을 번역한 뒤 바깥을 번역해도 안쪽 �
   await select('#inner', 'Inner', 'sentence');
   await clickTranslate();
   // 안쪽 두 번째 문장은 원문 보기로 돌려 둔다.
-  await select('#inner.tfd-copy', '[ko] Second', 'Second');
+  await clickSentence('#inner.tfd-copy', 1);
   assert.deepEqual(await states('#inner.tfd-copy'), ['translated', 'original']);
 
   await select('#outer', 'Outer', 'text');
@@ -333,7 +398,7 @@ test('번역문 단어를 더블클릭한 뒤 Shift만 눌렀다 떼도 원문�
     return { x: r.left + 40, y: r.top + r.height / 2 };
   });
   await page.mouse.dblclick(word.x, word.y);
-  await page.waitForTimeout(50);
+  await page.waitForTimeout(400); // 클릭 전환 대기 시간이 지나도 바뀌지 않아야 한다
   assert.notEqual(await page.evaluate(() => getSelection().toString()), '');
   assert.deepEqual(await states('#kb'), ['translated']);
 

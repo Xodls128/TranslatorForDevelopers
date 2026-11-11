@@ -3,7 +3,7 @@
 /*
  * 열린 Shadow DOM 대응 (MDN처럼 코드 예제와 언어 메뉴가 웹 컴포넌트 안에 있는 사이트)
  * - Shadow DOM 안 코드 블록을 실제 마우스로 드래그하면 주석만 번역하고, 번역문 스타일도 적용된다
- * - 번역된 주석: 드래그하면 원문, 클릭하면 번역문
+ * - 번역된 주석: 드래그하면 그대로, 클릭하면 원문, 다시 클릭하면 번역문
  * - 언어 메뉴(Shadow DOM)의 "한국어" 링크를 한국어판으로 안내한다. 다른 사이트로 가는 "한국어" 링크는 무시한다
  *
  * 실행: npm run test:e2e
@@ -114,7 +114,7 @@ test('Shadow DOM 안 코드 블록: 실제 드래그로 주석만 번역, 스타
   assert.equal(shown.text, 'function init() {\n  var name = "Mozilla"; // [ko] name is a local variable\n  // [ko] displayName() is the inner function\n}');
   assert.equal(shown.background, 'rgba(255, 196, 0, 0.16)', 'Shadow root에 넣은 스타일로 번역문 배경이 보인다');
 
-  // 번역된 주석을 드래그하면 원문, 클릭하면 번역문
+  // 번역된 주석을 드래그하면 그대로, 클릭하면 원문, 다시 클릭하면 번역문
   const span = await p.evaluate(() => {
     const s = document.querySelector('test-code').shadowRoot.querySelector('pre.tfd-copy .tfd-sentence');
     const r = s.getBoundingClientRect();
@@ -122,9 +122,12 @@ test('Shadow DOM 안 코드 블록: 실제 드래그로 주석만 번역, 스타
   });
   await mouseDrag(p, { x: span.x + 2, y: span.y }, { x: span.x + span.w - 2, y: span.y });
   const stateOf = () => p.evaluate(() => document.querySelector('test-code').shadowRoot.querySelector('pre.tfd-copy .tfd-sentence').dataset.tfdState);
+  assert.equal(await stateOf(), 'translated');
+  await p.mouse.click(span.x + 5, span.y);
+  await p.waitForTimeout(400);
   assert.equal(await stateOf(), 'original');
   await p.mouse.click(span.x + 5, span.y);
-  await p.waitForTimeout(50);
+  await p.waitForTimeout(400);
   assert.equal(await stateOf(), 'translated');
   await p.close();
 });
